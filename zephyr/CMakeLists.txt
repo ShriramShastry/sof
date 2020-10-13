@@ -413,7 +413,13 @@ zephyr_library_sources_ifdef(CONFIG_COMP_DCBLOCK
 	${SOF_AUDIO_PATH}/dcblock/dcblock_generic.c
 	${SOF_AUDIO_PATH}/dcblock/dcblock.c
 )
-
+zephyr_library_sources_ifdef(CONFIG_COMP_IMPNSE
+	${SOF_AUDIO_PATH}/impnse/impnse_main.c
+	${SOF_AUDIO_PATH}/impnse/impnse_stdmlib.c
+	${SOF_AUDIO_PATH}/impnse/impnse_fFilt.c
+	${SOF_AUDIO_PATH}/impnse/impnse.c
+	${SOF_AUDIO_PATH}/impnse/impnse_generic.c
+)
 zephyr_library_sources_ifdef(CONFIG_COMP_SEL
 	${SOF_AUDIO_PATH}/selector/selector_generic.c
 	${SOF_AUDIO_PATH}/selector/selector.c

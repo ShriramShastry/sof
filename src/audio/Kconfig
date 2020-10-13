@@ -148,7 +148,12 @@ config COMP_DCBLOCK
 	help
 	  Select for DC Blocking Filter component. This component filters out
 	  the DC offset which often originates from a microphone's output.
-
+config COMP_IMPNSE
+	bool "impulse noise Filter component"
+	default y
+	help
+	  Select for impulse Filter component. This component filters out
+	  the impulse noise which often originates from a electrical output.
 config MAXIM_DSM
 	depends on CAVS && !CAVS_VERSION_1_5
 	bool "Maxim DSM component"

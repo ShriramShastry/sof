@@ -364,6 +364,7 @@ void sys_comp_keyword_init(void);
 void sys_comp_asrc_init(void);
 void sys_comp_dcblock_init(void);
 void sys_comp_eq_iir_init(void);
+void sys_comp_impnse_init(void);
 
 int task_main_start(struct sof *sof)
 {
@@ -425,6 +426,9 @@ int task_main_start(struct sof *sof)
 	if (IS_ENABLED(CONFIG_COMP_DCBLOCK)) {
 		sys_comp_dcblock_init();
 	}
+	if (IS_ENABLED(CONFIG_COMP_IMPNSE)) {
+		sys_comp_impnse_init();
+	}   
 
 	if (IS_ENABLED(CONFIG_COMP_MUX)) {
 		sys_comp_mux_init();
