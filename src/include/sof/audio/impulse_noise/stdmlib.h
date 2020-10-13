@@ -104,15 +104,6 @@ union ieee_double_u {
 extern double  impnse_trunc(double x);
 extern double  impnse_floor(double x);
 extern double  mod16(double s_num, double s_den);
-//extern double  floor16(double s_num, double s_den);
-
-//extern double  impnse_fmod(double x1, double x2);
-
-//extern double  fmod32(double s_num, double s_den);
-//extern double  impnse_ldexp(double x1, double x2);    function replacement
-//extern double  impnse_ldexp(double, int);
-//extern double  impnse_ceil(double x);
-
 #endif
 
 /*

@@ -11,6 +11,11 @@
 #include <sof/audio/impulse_noise/main.h>
 #include <sof/audio/impulse_noise/impnse.h>
 
+/*
+ * Arguments    : int argc
+ *                const char * const argv[]
+ * Return Type  : int
+ */
 int impnse_main(int argc, const char * const argv[])
 {
   (void)argc;
@@ -21,9 +26,8 @@ int impnse_main(int argc, const char * const argv[])
      You can call entry-point functions multiple times. */
   struct0_T ImpnseIsOut;
   struct0_T AudioSteam;
-  ImpnseIsOut = init_struc_fixpt();         // function initialization - this is  required for wrapper unit testing
-  AudioSteam = impnse_fixpt(ImpnseIsOut);   // function initialization - this is  required for impulse noise detection and cancellation
-
+  ImpnseIsOut = init_struc_fixpt();         // function initialization - this is  required
+  AudioSteam = impnse_fixpt(ImpnseIsOut);   // function initialization - this is  required
 
 
   /* Terminate the application.
