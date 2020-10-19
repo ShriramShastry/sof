@@ -274,9 +274,9 @@ static void detectpeek(const short x_1[101], unsigned int minpeakh, unsigned
       b_u += 0.5;
     }
 
-    
+    /*b_u = floor(b_u);impnse_floor*/
     b_u = impnse_floor(b_u);
-    
+    /*b_u = floor16(b_u, b_u-1);*/
     locs_data[k0] = (unsigned char)b_u;
   }
 
@@ -470,7 +470,7 @@ static double rt_remd(double u0, double u1)
 {
   double y;
   double q;
-  
+  /*if ((u1 != 0.0) && (u1 != trunc(u1))) impnse_trunc*/
   if ((u1 != 0.0) && (u1 != impnse_trunc(u1)))
   {
     q = fabs(u0 / u1);
@@ -481,12 +481,14 @@ static double rt_remd(double u0, double u1)
     }
     else
     {
-       y = mod16(u0, u1);
+      /*y = fmod(u0, u1); mod16*/
+        y = mod16(u0, u1);
     }
   }
   else
   {
-       y = mod16(u0, u1);
+    /*y = fmod(u0, u1);   mod16*/
+      y = mod16(u0, u1);
   }
 
   return y;
