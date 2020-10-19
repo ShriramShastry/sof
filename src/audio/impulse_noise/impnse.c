@@ -104,13 +104,13 @@ static struct comp_dev *impnse_new(const struct comp_driver *drv,
 	 * Copy over the coefficients from the blob to cd->R_coeffs
 	 * Set passthrough if the size of the blob is invalid
 	 */
-	if (bs == sizeof(cd->R_coeffs)) {
-		ret = memcpy_s(cd->R_coeffs, bs, ipc_impnse->data, bs);
+	if (bs == sizeof(cd->ImpnseIsOut.f)) {
+		ret = memcpy_s(cd->ImpnseIsOut.f, bs, ipc_impnse->data, bs);
 		assert(!ret);
 	} else {
 		if (bs > 0)
 			comp_cl_warn(&comp_impnse, "impnse_new(), binary blob size %i, expected %i",
-				     bs, sizeof(cd->R_coeffs));
+				     bs, sizeof(cd->ImpnseIsOut.f));
 		impnse_set_passthrough(cd);
 	}
 
@@ -183,7 +183,7 @@ static int impnse_cmd_get_data(struct comp_dev *dev,
 		comp_info(dev, "impnse_cmd_get_data(), SOF_CTRL_CMD_BINARY");
 
 		/* Copy coefficients back to user space */
-		resp_size = sizeof(cd->R_coeffs);
+		resp_size = sizeof(cd->ImpnseIsOut.f);
 		comp_info(dev, "impnse_cmd_get_data(), resp_size %u",
 			  resp_size);
 
@@ -195,7 +195,7 @@ static int impnse_cmd_get_data(struct comp_dev *dev,
 		}
 
 		ret = memcpy_s(cdata->data->data, cdata->data->size,
-			       cd->R_coeffs, resp_size);
+			       cd->ImpnseIsOut.f, resp_size);
 		assert(!ret);
 
 		cdata->data->abi = SOF_ABI_VERSION;
@@ -213,7 +213,7 @@ static int impnse_cmd_set_data(struct comp_dev *dev,
 				struct sof_ipc_ctrl_data *cdata)
 {
 	struct comp_data *cd = comp_get_drvdata(dev);
-	size_t req_size = sizeof(cd->R_coeffs);
+	size_t req_size = sizeof(cd->ImpnseIsOut.f);
 	int ret = 0;
 
 	switch (cdata->cmd) {
@@ -221,7 +221,7 @@ static int impnse_cmd_set_data(struct comp_dev *dev,
 		comp_info(dev, "impnse_cmd_set_data(), SOF_CTRL_CMD_BINARY");
 
 		/* Retrieve the binary controls from the packet */
-		ret = memcpy_s(cd->R_coeffs, req_size, cdata->data->data,
+		ret = memcpy_s(cd->ImpnseIsOut.f, req_size, cdata->data->data,
 			       req_size);
 		assert(!ret);
 
@@ -361,8 +361,12 @@ static int impnse_prepare(struct comp_dev *dev)
 		ret = -ENOMEM;
 		goto err;
 	}
-
+	
 	impnse_init_state(cd);
+    struct0_T ImpnseIsOut;
+    struct0_T AudioSteam;
+    ImpnseIsOut = init_struc_fixpt();         // function initialization - this is  required for wrapper unit testing
+    AudioSteam = impnse_fixpt(ImpnseIsOut);   // function initialization - this is  required for impulse noise detection and cancellation
 
 	cd->impnse_func = impnse_find_func(cd->source_format);
 	if (!cd->impnse_func) {

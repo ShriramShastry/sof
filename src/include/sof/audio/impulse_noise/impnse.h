@@ -17,6 +17,7 @@
 #include <stdint.h>
 #include <sof/platform.h>
 #include <ipc/stream.h>
+#include <sof/audio/impulse_noise/rtwtypes.h>
 
 /* Function Declarations */
 extern struct0_T impnse_fixpt(const struct0_T ImpnseIsOut);
@@ -32,6 +33,17 @@ struct impnse_state {
 	int32_t x_prev; /**< state variable referring to x[n-1] */
 	int32_t y_prev; /**< state variable referring to y[n-1] */
 };
+
+
+struct impnse_T {
+    uint8_T NumChan;
+    int16_T f[202];
+    uint32_T minHeight[2];
+    uint32_T repValue[2];
+    int32_T fFilt[202];
+    boolean_T isOut[202];
+};
+
 
 /**
  * \brief Type definition for the processing function for the
@@ -49,7 +61,7 @@ struct comp_data {
 
 	/** coefficients for the processing function */
 	int32_t R_coeffs[PLATFORM_MAX_CHANNELS];
-
+    struct impnse_T ImpnseIsOut;
 	enum sof_ipc_frame source_format;
 	enum sof_ipc_frame sink_format;
 	impnse_func impnse_func; /**< processing function */
