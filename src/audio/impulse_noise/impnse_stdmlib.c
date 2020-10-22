@@ -9,8 +9,14 @@
 
 /* Include Files */
 #include <stddef.h>
-#include <sof/audio/impulse_noise/stdmlib.h>
+#include <stdlib.h>
+//#include <sof/audio/impulse_noise/rtwtypes.h>
+//#include <sof/audio/impulse_noise/stdmlib.h>
+
 #include <sof/audio/impulse_noise/rtwtypes.h>
+#include <sof/audio/impulse_noise/stdmlib.h>
+
+
 
  static const double huge = 1.0e300;
  double  impnse_trunc(double x)
@@ -103,7 +109,7 @@
  /*
 *-------------------------------------------------------------------------------
 *
-*  Prototype: double mod16(double s_num, double s_den)
+*  Prototype: double impnse_mod(double s_num, double s_den)
 *
 *  This function returns s_num mod s_den. Inputs are assumed to be positive,
 *  and s_den should not be zero.
@@ -122,18 +128,18 @@
 *-------------------------------------------------------------------------------
 */
 
- double mod16(double s_num, double s_den)
+ double impnse_mod(double s_num, double s_den)
  {
      if (s_den == 1)
-         return (int16_T)0;
+         return (int32_T)0;
 
      if (s_den == 0) // error
-         return (int16_T)(0x7FFF);
+         return (int32_T)(0x7FFFFFFF);
 
      while (s_num >= s_den)
          s_num -= s_den;
 
-     return (int16_T)s_num;
+     return (int32_T)s_num;
  }
 
  /*

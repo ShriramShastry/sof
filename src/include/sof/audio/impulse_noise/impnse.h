@@ -12,7 +12,7 @@
 /* Include Files */
 #include <stddef.h>
 #include <sof/audio/impulse_noise/stdmlib.h>
-#include <sof/audio/impulse_noise/rtwtypes.h>
+
 #include <sof/audio/impulse_noise/impnse_types.h>
 #include <stdint.h>
 #include <sof/platform.h>
@@ -36,12 +36,12 @@ struct impnse_state {
 
 
 struct impnse_T {
-    uint8_T NumChan;
-    int16_T f[202];
-    uint32_T minHeight[2];
-    uint32_T repValue[2];
-    int32_T fFilt[202];
-    boolean_T isOut[202];
+    unsigned char NumChan;
+    int f[202];
+    uint64m_T minHeight[2];
+    uint64m_T repValue[2];
+    int64m_T fFilt[202];
+    bool isOut[202];
 };
 
 

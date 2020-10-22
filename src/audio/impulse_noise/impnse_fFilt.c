@@ -1,18 +1,18 @@
 /*
  * SPDX-License-Identifier: BSD-3-Clause
- * File: impnse.c
+ * File: impnse_fFilt.c
  *
  * Author :Sriram Shastry & Ingalsuo, Seppo
  * Coyright(c) 2017 Intel Corporation. All rights reserved.
  */
-
 /* Include Files */
-#include <sof/audio/impulse_noise/impnse.h>
+#include  <sof/audio/impulse_noise/impnse.h>
 #include <float.h>
 #include <math.h>
 #include <string.h>
-#include <sof/audio/impulse_noise/rtwtypes.h>
 #include <sof/audio/impulse_noise/stdmlib.h>
+/* Type Definitions */
+#include "stdint.h"
 
 /* Type Definitions */
 #ifndef struct_emxArray_int32_T_101
@@ -34,22 +34,34 @@ typedef struct emxArray_int32_T_101 emxArray_int32_T_101;
 #endif                                 /*typedef_emxArray_int32_T_101*/
 
 /* Function Declarations */
+static int MultiWord2sLong(const unsigned int u[]);
 static unsigned int MultiWord2uLong(const unsigned int u[]);
 static void MultiWordAdd(const unsigned int u1[], const unsigned int u2[],
   unsigned int y[], int n);
+static void MultiWordIor(const unsigned int u1[], const unsigned int u2[],
+  unsigned int y[], int n);
+static void MultiWordNeg(const unsigned int u1[], unsigned int y[], int n);
+static void MultiWordSetSignedMax(unsigned int y[], int n);
+static void MultiWordSetSignedMin(unsigned int y[], int n);
 static void MultiWordSignedWrap(const unsigned int u1[], int n1, unsigned int n2,
   unsigned int y[]);
 static void MultiWordSub(const unsigned int u1[], const unsigned int u2[],
   unsigned int y[], int n);
+static void MultiWordUnsignedWrap(const unsigned int u1[], int n1, unsigned int
+  n2, unsigned int y[]);
 static int asr_s32(int u, unsigned int n);
-static void detectpeek(const short x_1[101], unsigned int minpeakh, unsigned
-  char locs_data[], int locs_size[1], unsigned short pks_data[], int pks_size[1]);
-static int div_s32_convergent(int numerator, int denominator);
-static void merge(int idx_data[], short x_data[], int offset, int np, int nq,
-                  int iwork_data[], short xwork_data[]);
+static void detectpeek(const int x_1[101], const uint64m_T minpeakh, unsigned
+  char locs_data[], int locs_size[1], unsigned int pks_data[], int pks_size[1]);
+static void merge(int idx_data[], int x_data[], int offset, int np, int nq, int
+                  iwork_data[], int xwork_data[]);
 static double rt_remd(double u0, double u1);
 static void sLong2MultiWord(int u, unsigned int y[], int n);
+static void sMultiWord2MultiWord(const unsigned int u1[], int n1, unsigned int
+  y[], int n);
 static int sMultiWordCmp(const unsigned int u1[], const unsigned int u2[], int n);
+static void sMultiWordDivConv(const unsigned int u1[], int n1, const unsigned
+  int u2[], int n2, unsigned int b_y1[], int m1, unsigned int y2[], int m2,
+  unsigned int t1[], int l1, unsigned int t2[], int l2);
 static bool sMultiWordLe(const unsigned int u1[], const unsigned int u2[], int n);
 static bool sMultiWordLt(const unsigned int u1[], const unsigned int u2[], int n);
 static void sMultiWordMul(const unsigned int u1[], int n1, const unsigned int
@@ -60,12 +72,36 @@ static void sMultiWordShr(const unsigned int u1[], int n1, unsigned int n2,
   unsigned int y[], int n);
 static void sMultiWordShrConv(const unsigned int u1[], int n1, unsigned int n2,
   unsigned int y[], int n);
-static void sort(short x_data[], const int x_size[1]);
-static void sortIdx(short x_data[], const int x_size[1], int idx_data[], int
+static void sort(int x_data[], const int x_size[1]);
+static void sortIdx(int x_data[], const int x_size[1], int idx_data[], int
                     idx_size[1]);
 static void uLong2MultiWord(unsigned int u, unsigned int y[], int n);
+static void uMultiWord2MultiWord(const unsigned int u1[], int n1, unsigned int
+  y[], int n);
+static int uMultiWordCmp(const unsigned int u1[], const unsigned int u2[], int n);
+static int uMultiWordCmpShr(const unsigned int u1[], const unsigned int u2[],
+  int n);
+static int uMultiWordDiv(unsigned int a[], int na, unsigned int b[], int nb,
+  unsigned int q[], int nq, unsigned int r[], int nr);
+static void uMultiWordInc(unsigned int y[], int n);
+static bool uMultiWordLe(const unsigned int u1[], const unsigned int u2[], int n);
+static void uMultiWordMul(const unsigned int u1[], int n1, const unsigned int
+  u2[], int n2, unsigned int y[], int n);
+static void uMultiWordShr(const unsigned int u1[], int n1, unsigned int n2,
+  unsigned int y[], int n);
+static void uMultiWordShrConv(const unsigned int u1[], int n1, unsigned int n2,
+  unsigned int y[], int n);
 
 /* Function Definitions */
+
+/*
+ * Arguments    : const unsigned int u[]
+ * Return Type  : int
+ */
+static int MultiWord2sLong(const unsigned int u[])
+{
+  return (int)u[0];
+}
 
 /*
  * Arguments    : const unsigned int u[]
@@ -104,6 +140,77 @@ static void MultiWordAdd(const unsigned int u1[], const unsigned int u2[],
       carry = (int)((yi < u1i) ? 1 : 0);
     }
   }
+}
+
+/*
+ * Arguments    : const unsigned int u1[]
+ *                const unsigned int u2[]
+ *                unsigned int y[]
+ *                int n
+ * Return Type  : void
+ */
+static void MultiWordIor(const unsigned int u1[], const unsigned int u2[],
+  unsigned int y[], int n)
+{
+  int i;
+  for (i = 0; i < n; i++)
+  {
+    y[i] = u1[i] | u2[i];
+  }
+}
+
+/*
+ * Arguments    : const unsigned int u1[]
+ *                unsigned int y[]
+ *                int n
+ * Return Type  : void
+ */
+static void MultiWordNeg(const unsigned int u1[], unsigned int y[], int n)
+{
+  int i;
+  unsigned int yi;
+  int carry = 1;
+  for (i = 0; i < n; i++)
+  {
+    yi = (~u1[i]) + ((unsigned int)carry);
+    y[i] = yi;
+    carry = (int)((yi < ((unsigned int)carry)) ? 1 : 0);
+  }
+}
+
+/*
+ * Arguments    : unsigned int y[]
+ *                int n
+ * Return Type  : void
+ */
+static void MultiWordSetSignedMax(unsigned int y[], int n)
+{
+  int n1;
+  int i;
+  n1 = n - 1;
+  for (i = 0; i < n1; i++)
+  {
+    y[i] = MAX_uint32_T;
+  }
+
+  y[n1] = 2147483647U;
+}
+
+/*
+ * Arguments    : unsigned int y[]
+ *                int n
+ * Return Type  : void
+ */
+static void MultiWordSetSignedMin(unsigned int y[], int n)
+{
+  int n1;
+  n1 = n - 1;
+  if (0 <= (n1 - 1))
+  {
+    memset(&y[0], 0, ((unsigned int)n1) * (sizeof(unsigned int)));
+  }
+
+  y[n1] = 2147483648U;
 }
 
 /*
@@ -170,6 +277,26 @@ static void MultiWordSub(const unsigned int u1[], const unsigned int u2[],
 }
 
 /*
+ * Arguments    : const unsigned int u1[]
+ *                int n1
+ *                unsigned int n2
+ *                unsigned int y[]
+ * Return Type  : void
+ */
+static void MultiWordUnsignedWrap(const unsigned int u1[], int n1, unsigned int
+  n2, unsigned int y[])
+{
+  int n1m1;
+  n1m1 = n1 - 1;
+  if (0 <= (n1m1 - 1))
+  {
+    memcpy(&y[0], &u1[0], ((unsigned int)n1m1) * (sizeof(unsigned int)));
+  }
+
+  y[n1m1] = u1[n1m1] & ((1U << (32U - n2)) - 1U);
+}
+
+/*
  * Arguments    : int u
  *                unsigned int n
  * Return Type  : int
@@ -191,20 +318,20 @@ static int asr_s32(int u, unsigned int n)
 
 /*
  * function [locs, pks]=detectpeek(x_1,minpeakdist,minpeakh)
- * Arguments    : const short x_1[101]
- *                unsigned int minpeakh
+ * Arguments    : const int x_1[101]
+ *                const uint64m_T minpeakh
  *                unsigned char locs_data[]
  *                int locs_size[1]
- *                unsigned short pks_data[]
+ *                unsigned int pks_data[]
  *                int pks_size[1]
  * Return Type  : void
  */
-static void detectpeek(const short x_1[101], unsigned int minpeakh, unsigned
-  char locs_data[], int locs_size[1], unsigned short pks_data[], int pks_size[1])
+static void detectpeek(const int x_1[101], const uint64m_T minpeakh, unsigned
+  char locs_data[], int locs_size[1], unsigned int pks_data[], int pks_size[1])
 {
   int i;
-  unsigned short x[101];
-  unsigned short u;
+  unsigned int x[101];
+  unsigned int u;
   int k0;
   bool bv[99];
   bool exitg1;
@@ -212,20 +339,30 @@ static void detectpeek(const short x_1[101], unsigned int minpeakh, unsigned
   int nxin;
   signed char ii_data[99];
   double b_u;
-  bool c_data[99];
+  uint64m_T r;
   int k;
+  uint64m_T r1;
+  bool c_data[99];
 
-  /*  detectpeek : detectpeek function */
+  /*  function : detectpeek  */
   /*  args */
   /*  X           - Indata  raw data */
   /*  minpeakdist - minimum data sample for analysis */
   /*  minpeakh    - minimum heigth to declare a peek */
+  /*  return */
+  /*  peak value */
+  /*  location for peak value */
+  /* 'impnse_fixpt:63' fm = get_fimath(); */
+  /* 'impnse_fixpt:64' x = fi(x_1, 0, 32, 32, fm); */
+  /* 'impnse_fixpt:66' if size(x,fi(2, 0, 2, 0, fm))==1 */
+  /* 'impnse_fixpt:66' x(:)=fi(x', 0, 32, 32, fm); */
   for (i = 0; i < 101; i++)
   {
-    x[i] = (unsigned short)(((unsigned short)x_1[i]) << ((unsigned int)1));
+    x[i] = (((unsigned int)x_1[i]) << ((unsigned int)1));
   }
 
   /*  Find all maxima and ties */
+  /* 'impnse_fixpt:68' locs=fi(find(x(2:end-1)>=x(1:end-2) & x(2:end-1)>=x(3:end))+1, 0, 7, 0, fm); */
   for (i = 0; i < 99; i++)
   {
     u = x[i + 1];
@@ -274,18 +411,24 @@ static void detectpeek(const short x_1[101], unsigned int minpeakh, unsigned
       b_u += 0.5;
     }
 
-    /*b_u = floor(b_u);impnse_floor*/
     b_u = impnse_floor(b_u);
-    /*b_u = floor16(b_u, b_u-1);*/
     locs_data[k0] = (unsigned char)b_u;
   }
 
+
   /*  If no minpeakdist specified, default to 1. */
+
   /*  If there's a minpeakheight */
+
   for (k0 = 0; k0 < nxin; k0++)
   {
-    c_data[k0] = ((((unsigned int)x[((int)locs_data[k0]) - 1]) << ((unsigned int)
-      1)) <= minpeakh);
+    uLong2MultiWord(x[((int)locs_data[k0]) - 1], (unsigned int *)(&r.chunks[0U]),
+                    2);
+    sMultiWordShl((unsigned int *)(&r.chunks[0U]), 2, 1U, (unsigned int *)
+                  (&r1.chunks[0U]), 2);
+    r = minpeakh;
+    c_data[k0] = uMultiWordLe((unsigned int *)(&r1.chunks[0U]), (unsigned int *)
+      (&minpeakh.chunks[0U]), 2);
   }
 
   i = 0;
@@ -323,81 +466,17 @@ static void detectpeek(const short x_1[101], unsigned int minpeakh, unsigned
 }
 
 /*
- * Arguments    : int numerator
- *                int denominator
- * Return Type  : int
- */
-static int div_s32_convergent(int numerator, int denominator)
-{
-  int quotient;
-  unsigned int absNumerator;
-  unsigned int absDenominator;
-  unsigned int tempAbsQuotient;
-  if (denominator == 0)
-  {
-    if (numerator >= 0)
-    {
-      quotient = MAX_int32_T;
-    }
-    else
-    {
-      quotient = MIN_int32_T;
-    }
-  }
-  else
-  {
-    if (numerator < 0)
-    {
-      absNumerator = (~((unsigned int)numerator)) + 1U;
-    }
-    else
-    {
-      absNumerator = (unsigned int)numerator;
-    }
-
-    if (denominator < 0)
-    {
-      absDenominator = (~((unsigned int)denominator)) + 1U;
-    }
-    else
-    {
-      absDenominator = (unsigned int)denominator;
-    }
-
-    tempAbsQuotient = absNumerator / absDenominator;
-    absNumerator %= absDenominator;
-    absNumerator <<= 1U;
-    if ((absNumerator > absDenominator) || ((absNumerator == absDenominator) &&
-         ((tempAbsQuotient & 1U) != 0U)))
-    {
-      tempAbsQuotient++;
-    }
-
-    if ((numerator < 0) != (denominator < 0))
-    {
-      quotient = -((int)tempAbsQuotient);
-    }
-    else
-    {
-      quotient = (int)tempAbsQuotient;
-    }
-  }
-
-  return quotient;
-}
-
-/*
  * Arguments    : int idx_data[]
- *                short x_data[]
+ *                int x_data[]
  *                int offset
  *                int np
  *                int nq
  *                int iwork_data[]
- *                short xwork_data[]
+ *                int xwork_data[]
  * Return Type  : void
  */
-static void merge(int idx_data[], short x_data[], int offset, int np, int nq,
-                  int iwork_data[], short xwork_data[])
+static void merge(int idx_data[], int x_data[], int offset, int np, int nq, int
+                  iwork_data[], int xwork_data[])
 {
   int n_tmp;
   int iout;
@@ -470,25 +549,21 @@ static double rt_remd(double u0, double u1)
 {
   double y;
   double q;
-  /*if ((u1 != 0.0) && (u1 != trunc(u1))) impnse_trunc*/
   if ((u1 != 0.0) && (u1 != impnse_trunc(u1)))
   {
     q = fabs(u0 / u1);
-    // if (fabs(q - floor(q + 0.5)) <= (DBL_EPSILON * q))
     if (fabs(q - impnse_floor(q + 0.5)) <= (DBL_EPSILON * q))
     {
       y = 0.0;
     }
     else
     {
-      /*y = fmod(u0, u1); mod16*/
-        y = mod16(u0, u1);
+      y = impnse_mod(u0, u1);
     }
   }
   else
   {
-    /*y = fmod(u0, u1);   mod16*/
-      y = mod16(u0, u1);
+    y = impnse_mod(u0, u1);
   }
 
   return y;
@@ -517,6 +592,51 @@ static void sLong2MultiWord(int u, unsigned int y[], int n)
   for (i = 1; i < n; i++)
   {
     y[i] = yi;
+  }
+}
+
+/*
+ * Arguments    : const unsigned int u1[]
+ *                int n1
+ *                unsigned int y[]
+ *                int n
+ * Return Type  : void
+ */
+static void sMultiWord2MultiWord(const unsigned int u1[], int n1, unsigned int
+  y[], int n)
+{
+  int nm;
+  unsigned int u1i;
+  int i;
+  if (n1 < n)
+  {
+    nm = n1;
+  }
+  else
+  {
+    nm = n;
+  }
+
+  if (0 <= (nm - 1))
+  {
+    memcpy(&y[0], &u1[0], ((unsigned int)nm) * (sizeof(unsigned int)));
+  }
+
+  if (n > n1)
+  {
+    if ((u1[n1 - 1] & 2147483648U) != 0U)
+    {
+      u1i = MAX_uint32_T;
+    }
+    else
+    {
+      u1i = 0U;
+    }
+
+    for (i = nm; i < n; i++)
+    {
+      y[i] = u1i;
+    }
   }
 }
 
@@ -568,6 +688,74 @@ static int sMultiWordCmp(const unsigned int u1[], const unsigned int u2[], int n
   }
 
   return y;
+}
+
+/*
+ * Arguments    : const unsigned int u1[]
+ *                int n1
+ *                const unsigned int u2[]
+ *                int n2
+ *                unsigned int b_y1[]
+ *                int m1
+ *                unsigned int y2[]
+ *                int m2
+ *                unsigned int t1[]
+ *                int l1
+ *                unsigned int t2[]
+ *                int l2
+ * Return Type  : void
+ */
+static void sMultiWordDivConv(const unsigned int u1[], int n1, const unsigned
+  int u2[], int n2, unsigned int b_y1[], int m1, unsigned int y2[], int m2,
+  unsigned int t1[], int l1, unsigned int t2[], int l2)
+{
+  bool numNeg;
+  bool denNeg;
+  int cmp;
+  numNeg = ((u1[n1 - 1] & 2147483648U) != 0U);
+  denNeg = ((u2[n2 - 1] & 2147483648U) != 0U);
+  if (numNeg)
+  {
+    MultiWordNeg(u1, t1, n1);
+  }
+  else
+  {
+    sMultiWord2MultiWord(u1, n1, t1, l1);
+  }
+
+  if (denNeg)
+  {
+    MultiWordNeg(u2, t2, n2);
+  }
+  else
+  {
+    sMultiWord2MultiWord(u2, n2, t2, l2);
+  }
+
+  if (uMultiWordDiv(t1, l1, t2, l2, b_y1, m1, y2, m2) < 0)
+  {
+    if (numNeg)
+    {
+      MultiWordSetSignedMin(b_y1, m1);
+    }
+    else
+    {
+      MultiWordSetSignedMax(b_y1, m1);
+    }
+  }
+  else
+  {
+    cmp = uMultiWordCmpShr(y2, t2, m2);
+    if ((cmp > 0) || ((cmp == 0) && ((b_y1[0] & 1U) != 0U)))
+    {
+      uMultiWordInc(b_y1, m1);
+    }
+
+    if (numNeg != denNeg)
+    {
+      MultiWordNeg(b_y1, b_y1, m1);
+    }
+  }
 }
 
 /*
@@ -959,11 +1147,11 @@ static void sMultiWordShrConv(const unsigned int u1[], int n1, unsigned int n2,
 }
 
 /*
- * Arguments    : short x_data[]
+ * Arguments    : int x_data[]
  *                const int x_size[1]
  * Return Type  : void
  */
-static void sort(short x_data[], const int x_size[1])
+static void sort(int x_data[], const int x_size[1])
 {
   int dim;
   int j;
@@ -971,7 +1159,7 @@ static void sort(short x_data[], const int x_size[1])
   int vwork_size[1];
   int vstride;
   int k;
-  short vwork_data[101];
+  int vwork_data[101];
   emxArray_int32_T_101 b_vwork_data;
   dim = 0;
   if (x_size[0] != 1)
@@ -1012,39 +1200,37 @@ static void sort(short x_data[], const int x_size[1])
 }
 
 /*
- * Arguments    : short x_data[]
+ * Arguments    : int x_data[]
  *                const int x_size[1]
  *                int idx_data[]
  *                int idx_size[1]
  * Return Type  : void
  */
-static void sortIdx(short x_data[], const int x_size[1], int idx_data[], int
+static void sortIdx(int x_data[], const int x_size[1], int idx_data[], int
                     idx_size[1])
 {
   signed char unnamed_idx_0;
-  int i1;
+  int i3;
   int n;
-  short x4[4];
+  int x4[4];
   unsigned char idx4[4];
   int iwork_data[101];
-  short xwork_data[101];
+  int xwork_data[101];
   int nQuartets;
   int j;
-  int i2;
-  int i;
-  int i3;
   int i4;
+  int i;
+  int nLeft;
+  int i1;
+  int nPairs;
   signed char perm[4];
-  short x4_tmp;
-  short b_x4_tmp;
-  short c_x4_tmp;
-  int idx_tmp;
+  int i2;
   unnamed_idx_0 = (signed char)x_size[0];
   idx_size[0] = (int)unnamed_idx_0;
-  i1 = (int)unnamed_idx_0;
-  if (0 <= (i1 - 1))
+  i3 = (int)unnamed_idx_0;
+  if (0 <= (i3 - 1))
   {
-    memset(&idx_data[0], 0, ((unsigned int)i1) * (sizeof(int)));
+    memset(&idx_data[0], 0, ((unsigned int)i3) * (sizeof(int)));
   }
 
   if (x_size[0] != 0)
@@ -1058,16 +1244,16 @@ static void sortIdx(short x_data[], const int x_size[1], int idx_data[], int
     idx4[2] = 0U;
     x4[3] = 0;
     idx4[3] = 0U;
-    i1 = (int)unnamed_idx_0;
-    if (0 <= (i1 - 1))
+    i3 = (int)unnamed_idx_0;
+    if (0 <= (i3 - 1))
     {
-      memset(&iwork_data[0], 0, ((unsigned int)i1) * (sizeof(int)));
+      memset(&iwork_data[0], 0, ((unsigned int)i3) * (sizeof(int)));
     }
 
-    i1 = x_size[0];
-    if (0 <= (i1 - 1))
+    i3 = x_size[0];
+    if (0 <= (i3 - 1))
     {
-      memset(&xwork_data[0], 0, ((unsigned int)i1) * (sizeof(short)));
+      memset(&xwork_data[0], 0, ((unsigned int)i3) * (sizeof(int)));
     }
 
     nQuartets = asr_s32(x_size[0], 2U);
@@ -1079,13 +1265,13 @@ static void sortIdx(short x_data[], const int x_size[1], int idx_data[], int
       idx4[2] = (unsigned char)((int)(i + 3));
       idx4[3] = (unsigned char)((int)(i + 4));
       x4[0] = x_data[i];
-      x4_tmp = x_data[i + 1];
-      x4[1] = x4_tmp;
-      b_x4_tmp = x_data[i + 2];
-      x4[2] = b_x4_tmp;
-      c_x4_tmp = x_data[i + 3];
-      x4[3] = c_x4_tmp;
-      if (x_data[i] <= x4_tmp)
+      i3 = x_data[i + 1];
+      x4[1] = i3;
+      i4 = x_data[i + 2];
+      x4[2] = i4;
+      nLeft = x_data[i + 3];
+      x4[3] = nLeft;
+      if (x_data[i] <= i3)
       {
         i1 = 1;
         i2 = 2;
@@ -1096,7 +1282,7 @@ static void sortIdx(short x_data[], const int x_size[1], int idx_data[], int
         i2 = 1;
       }
 
-      if (b_x4_tmp <= c_x4_tmp)
+      if (i4 <= nLeft)
       {
         i3 = 3;
         i4 = 4;
@@ -1107,19 +1293,19 @@ static void sortIdx(short x_data[], const int x_size[1], int idx_data[], int
         i4 = 3;
       }
 
-      x4_tmp = x4[i1 - 1];
-      b_x4_tmp = x4[i3 - 1];
-      if (x4_tmp <= b_x4_tmp)
+      nLeft = x4[i1 - 1];
+      nPairs = x4[i3 - 1];
+      if (nLeft <= nPairs)
       {
-        x4_tmp = x4[i2 - 1];
-        if (x4_tmp <= b_x4_tmp)
+        nLeft = x4[i2 - 1];
+        if (nLeft <= nPairs)
         {
           perm[0] = (signed char)i1;
           perm[1] = (signed char)i2;
           perm[2] = (signed char)i3;
           perm[3] = (signed char)i4;
         }
-        else if (x4_tmp <= x4[i4 - 1])
+        else if (nLeft <= x4[i4 - 1])
         {
           perm[0] = (signed char)i1;
           perm[1] = (signed char)i3;
@@ -1136,10 +1322,10 @@ static void sortIdx(short x_data[], const int x_size[1], int idx_data[], int
       }
       else
       {
-        b_x4_tmp = x4[i4 - 1];
-        if (x4_tmp <= b_x4_tmp)
+        nPairs = x4[i4 - 1];
+        if (nLeft <= nPairs)
         {
-          if (x4[i2 - 1] <= b_x4_tmp)
+          if (x4[i2 - 1] <= nPairs)
           {
             perm[0] = (signed char)i3;
             perm[1] = (signed char)i1;
@@ -1163,35 +1349,35 @@ static void sortIdx(short x_data[], const int x_size[1], int idx_data[], int
         }
       }
 
-      i4 = ((int)perm[0]) - 1;
-      idx_data[i] = (int)idx4[i4];
-      idx_tmp = ((int)perm[1]) - 1;
-      idx_data[i + 1] = (int)idx4[idx_tmp];
-      i1 = ((int)perm[2]) - 1;
-      idx_data[i + 2] = (int)idx4[i1];
-      i2 = ((int)perm[3]) - 1;
-      idx_data[i + 3] = (int)idx4[i2];
-      x_data[i] = x4[i4];
-      x_data[i + 1] = x4[idx_tmp];
-      x_data[i + 2] = x4[i1];
-      x_data[i + 3] = x4[i2];
+      nPairs = ((int)perm[0]) - 1;
+      idx_data[i] = (int)idx4[nPairs];
+      i2 = ((int)perm[1]) - 1;
+      idx_data[i + 1] = (int)idx4[i2];
+      i3 = ((int)perm[2]) - 1;
+      idx_data[i + 2] = (int)idx4[i3];
+      i4 = ((int)perm[3]) - 1;
+      idx_data[i + 3] = (int)idx4[i4];
+      x_data[i] = x4[nPairs];
+      x_data[i + 1] = x4[i2];
+      x_data[i + 2] = x4[i3];
+      x_data[i + 3] = x4[i4];
     }
 
-    i2 = nQuartets * 4;
-    i3 = (x_size[0] - i2) - 1;
-    if ((i3 + 1) > 0)
+    i4 = nQuartets * 4;
+    nLeft = (x_size[0] - i4) - 1;
+    if ((nLeft + 1) > 0)
     {
-      for (nQuartets = 0; nQuartets <= i3; nQuartets++)
+      for (i1 = 0; i1 <= nLeft; i1++)
       {
-        i1 = i2 + nQuartets;
-        idx4[nQuartets] = (unsigned char)((int)(i1 + 1));
-        x4[nQuartets] = x_data[i1];
+        i3 = i4 + i1;
+        idx4[i1] = (unsigned char)((int)(i3 + 1));
+        x4[i1] = x_data[i3];
       }
 
       perm[1] = 0;
       perm[2] = 0;
       perm[3] = 0;
-      switch (i3 + 1)
+      switch (nLeft + 1)
       {
        case 1:
         perm[0] = 1;
@@ -1253,45 +1439,46 @@ static void sortIdx(short x_data[], const int x_size[1], int idx_data[], int
         break;
       }
 
-      for (nQuartets = 0; nQuartets <= i3; nQuartets++)
+      for (i1 = 0; i1 <= nLeft; i1++)
       {
-        i4 = ((int)perm[nQuartets]) - 1;
-        idx_tmp = i2 + nQuartets;
-        idx_data[idx_tmp] = (int)idx4[i4];
-        x_data[idx_tmp] = x4[i4];
+        nPairs = ((int)perm[i1]) - 1;
+        i2 = i4 + i1;
+        idx_data[i2] = (int)idx4[nPairs];
+        x_data[i2] = x4[nPairs];
       }
     }
 
     if (n > 1)
     {
-      i4 = asr_s32(n, 2U);
-      i3 = 4;
-      while (i4 > 1)
+      nPairs = asr_s32(n, 2U);
+      nLeft = 4;
+      while (nPairs > 1)
       {
-        if ((i4 & 1) != 0)
+        if ((nPairs & 1) != 0)
         {
-          i4--;
-          i1 = i3 * i4;
-          i2 = n - i1;
-          if (i2 > i3)
+          nPairs--;
+          i3 = nLeft * nPairs;
+          i4 = n - i3;
+          if (i4 > nLeft)
           {
-            merge(idx_data, x_data, i1, i3, i2 - i3, iwork_data, xwork_data);
+            merge(idx_data, x_data, i3, nLeft, i4 - nLeft, iwork_data,
+                  xwork_data);
           }
         }
 
-        i1 = i3 * 2;
-        i4 = asr_s32(i4, 1U);
-        for (nQuartets = 0; nQuartets < i4; nQuartets++)
+        i3 = nLeft * 2;
+        nPairs = asr_s32(nPairs, 1U);
+        for (i1 = 0; i1 < nPairs; i1++)
         {
-          merge(idx_data, x_data, nQuartets * i1, i3, i3, iwork_data, xwork_data);
+          merge(idx_data, x_data, i1 * i3, nLeft, nLeft, iwork_data, xwork_data);
         }
 
-        i3 = i1;
+        nLeft = i3;
       }
 
-      if (n > i3)
+      if (n > nLeft)
       {
-        merge(idx_data, x_data, 0, i3, n - i3, iwork_data, xwork_data);
+        merge(idx_data, x_data, 0, nLeft, n - nLeft, iwork_data, xwork_data);
       }
     }
   }
@@ -1313,6 +1500,754 @@ static void uLong2MultiWord(unsigned int u, unsigned int y[], int n)
 }
 
 /*
+ * Arguments    : const unsigned int u1[]
+ *                int n1
+ *                unsigned int y[]
+ *                int n
+ * Return Type  : void
+ */
+static void uMultiWord2MultiWord(const unsigned int u1[], int n1, unsigned int
+  y[], int n)
+{
+  int nm;
+  if (n1 < n)
+  {
+    nm = n1;
+  }
+  else
+  {
+    nm = n;
+  }
+
+  if (0 <= (nm - 1))
+  {
+    memcpy(&y[0], &u1[0], ((unsigned int)nm) * (sizeof(unsigned int)));
+  }
+
+  if ((n > n1) && (nm <= (n - 1)))
+  {
+    memset(&y[nm], 0, ((unsigned int)((int)(n - nm))) * (sizeof(unsigned int)));
+  }
+}
+
+/*
+ * Arguments    : const unsigned int u1[]
+ *                const unsigned int u2[]
+ *                int n
+ * Return Type  : int
+ */
+static int uMultiWordCmp(const unsigned int u1[], const unsigned int u2[], int n)
+{
+  int y;
+  int i;
+  unsigned int u1i;
+  unsigned int u2i;
+  y = 0;
+  i = n;
+  while ((y == 0) && (i > 0))
+  {
+    i--;
+    u1i = u1[i];
+    u2i = u2[i];
+    if (u1i != u2i)
+    {
+      if (u1i > u2i)
+      {
+        y = 1;
+      }
+      else
+      {
+        y = -1;
+      }
+    }
+  }
+
+  return y;
+}
+
+/*
+ * Arguments    : const unsigned int u1[]
+ *                const unsigned int u2[]
+ *                int n
+ * Return Type  : int
+ */
+static int uMultiWordCmpShr(const unsigned int u1[], const unsigned int u2[],
+  int n)
+{
+  int y;
+  unsigned int u2i;
+  int i;
+  unsigned int u1i;
+  unsigned int y1i;
+  u2i = 0U;
+  y = 0;
+  i = n;
+  while ((y == 0) && (i > 0))
+  {
+    i--;
+    u1i = u1[i];
+    y1i = (u2i << 31U);
+    u2i = u2[i];
+    y1i |= (u2i >> 1U);
+    if (u1i != y1i)
+    {
+      if (u1i > y1i)
+      {
+        y = 1;
+      }
+      else
+      {
+        y = -1;
+      }
+    }
+  }
+
+  if ((y == 0) && ((u2i & 1U) == 1U))
+  {
+    y = -1;
+  }
+
+  return y;
+}
+
+/*
+ * Arguments    : unsigned int a[]
+ *                int na
+ *                unsigned int b[]
+ *                int nb
+ *                unsigned int q[]
+ *                int nq
+ *                unsigned int r[]
+ *                int nr
+ * Return Type  : int
+ */
+static int uMultiWordDiv(unsigned int a[], int na, unsigned int b[], int nb,
+  unsigned int q[], int nq, unsigned int r[], int nr)
+{
+  int y;
+  int nzb;
+  int tpi;
+  int nza;
+  int nb1;
+  int na1;
+  unsigned int ak;
+  unsigned int kbb;
+  unsigned int bk;
+  unsigned int t;
+  unsigned int nbq;
+  unsigned int kba;
+  unsigned int nba;
+  unsigned int nbb;
+  unsigned int mask;
+  unsigned int kbs;
+  int kb;
+  unsigned int tnb;
+  int ka;
+  nzb = nb;
+  tpi = nb - 1;
+  while ((nzb > 0) && (b[tpi] == 0U))
+  {
+    nzb--;
+    tpi--;
+  }
+
+  if (nzb > 0)
+  {
+    nza = na;
+    if (0 <= (nq - 1))
+    {
+      memset(&q[0], 0, ((unsigned int)nq) * (sizeof(unsigned int)));
+    }
+
+    tpi = na - 1;
+    while ((nza > 0) && (a[tpi] == 0U))
+    {
+      nza--;
+      tpi--;
+    }
+
+    if ((nza > 0) && (nza >= nzb))
+    {
+      nb1 = nzb - 1;
+      na1 = nza - 1;
+      if (0 <= (nr - 1))
+      {
+        memset(&r[0], 0, ((unsigned int)nr) * (sizeof(unsigned int)));
+      }
+
+      /* Quick return if dividend and divisor fit into single word. */
+      if (nza == 1)
+      {
+        ak = a[0];
+        bk = b[0];
+        nbq = ak / bk;
+        q[0] = nbq;
+        r[0] = ak - (nbq * bk);
+        y = 7;
+      }
+      else
+      {
+        /* Remove leading zeros from both, dividend and divisor. */
+        kbb = 1U;
+        t = (b[nb1] >> 1U);
+        while (t != 0U)
+        {
+          kbb++;
+          t >>= 1U;
+        }
+
+        kba = 1U;
+        t = (a[na1] >> 1U);
+        while (t != 0U)
+        {
+          kba++;
+          t >>= 1U;
+        }
+
+        /* Quick return if quotient is zero. */
+        if ((nza > nzb) || (kba >= kbb))
+        {
+          nba = (((unsigned int)na1) * 32U) + kba;
+          nbb = (((unsigned int)nb1) * 32U) + kbb;
+
+          /* Normalize b. */
+          if (kbb != 32U)
+          {
+            bk = b[nb1];
+            kbs = 32U - kbb;
+            for (kb = nb1; kb > 0; kb--)
+            {
+              t = (bk << kbs);
+              bk = b[kb - 1];
+              t |= (bk >> kbb);
+              b[kb] = t;
+            }
+
+            b[0] = (bk << kbs);
+            mask = ~((1U << kbs) - 1U);
+          }
+          else
+          {
+            mask = MAX_uint32_T;
+          }
+
+          /* Initialize quotient to zero. */
+          tnb = 0U;
+          y = 0;
+
+          /* Until exit conditions have been met, do */
+          do
+          {
+            /* Normalize a */
+            if (kba != 32U)
+            {
+              kbs = 32U - kba;
+              tnb += kbs;
+              ak = a[na1];
+              for (ka = na1; ka > 0; ka--)
+              {
+                t = (ak << kbs);
+                ak = a[ka - 1];
+                t |= (ak >> kba);
+                a[ka] = t;
+              }
+
+              a[0] = (ak << kbs);
+            }
+
+            /* Compare b against the a. */
+            ak = a[na1];
+            bk = b[nb1];
+            if (nb1 == 0)
+            {
+              t = mask;
+            }
+            else
+            {
+              t = MAX_uint32_T;
+            }
+
+            if ((ak & t) == bk)
+            {
+              tpi = 0;
+              ka = na1;
+              kb = nb1;
+              while ((tpi == 0) && (kb > 0))
+              {
+                ka--;
+                ak = a[ka];
+                kb--;
+                bk = b[kb];
+                if (kb == 0)
+                {
+                  t = mask;
+                }
+                else
+                {
+                  t = MAX_uint32_T;
+                }
+
+                if ((ak & t) != bk)
+                {
+                  if (ak > bk)
+                  {
+                    tpi = 1;
+                  }
+                  else
+                  {
+                    tpi = -1;
+                  }
+                }
+              }
+            }
+            else if (ak > bk)
+            {
+              tpi = 1;
+            }
+            else
+            {
+              tpi = -1;
+            }
+
+            /* If the remainder in a is still greater or equal to b, subtract normalized divisor from a. */
+            if ((tpi >= 0) || (nba > nbb))
+            {
+              nbq = nba - nbb;
+
+              /* If the remainder and the divisor are equal, set remainder to zero. */
+              if (tpi == 0)
+              {
+                ka = na1;
+                for (kb = nb1; kb > 0; kb--)
+                {
+                  a[ka] = 0U;
+                  ka--;
+                }
+
+                a[ka] -= b[0];
+              }
+              else
+              {
+                /* Otherwise, subtract the divisor from the remainder */
+                if (tpi < 0)
+                {
+                  ak = a[na1];
+                  kba = 31U;
+                  for (ka = na1; ka > 0; ka--)
+                  {
+                    t = (ak << 1U);
+                    ak = a[ka - 1];
+                    t |= (ak >> 31U);
+                    a[ka] = t;
+                  }
+
+                  a[0] = (ak << 1U);
+                  tnb++;
+                  nbq--;
+                }
+
+                tpi = 0;
+                ka = na1 - nb1;
+                for (kb = 0; kb < nzb; kb++)
+                {
+                  bk = b[kb];
+                  t = a[ka];
+                  ak = (t - bk) - ((unsigned int)tpi);
+                  if (((unsigned int)tpi) != 0U)
+                  {
+                    tpi = (int)((ak >= t) ? 1 : 0);
+                  }
+                  else
+                  {
+                    tpi = (int)((ak > t) ? 1 : 0);
+                  }
+
+                  a[ka] = ak;
+                  ka++;
+                }
+              }
+
+              /* Update the quotient. */
+              tpi = ((int)nbq) / 32;
+              q[tpi] |= (1U << (nbq - (((unsigned int)tpi) * 32U)));
+
+              /* Remove leading zeros from the remainder and check whether the exit conditions have been met. */
+              tpi = na1;
+              while ((nza > 0) && (a[tpi] == 0U))
+              {
+                nza--;
+                tpi--;
+              }
+
+              if (nza >= nzb)
+              {
+                na1 = nza - 1;
+                kba = 1U;
+                t = (a[na1] >> 1U);
+                while (t != 0U)
+                {
+                  kba++;
+                  t >>= 1U;
+                }
+
+                nba = ((((unsigned int)na1) * 32U) + kba) - tnb;
+                if (nba < nbb)
+                {
+                  y = 2;
+                }
+              }
+              else if (nza == 0)
+              {
+                y = 1;
+              }
+              else
+              {
+                na1 = nza - 1;
+                y = 4;
+              }
+            }
+            else
+            {
+              y = 3;
+            }
+          }
+          while (y == 0);
+
+          /* Return the remainder. */
+          if (y == 1)
+          {
+            r[0] = a[0];
+          }
+          else
+          {
+            kb = ((int)tnb) / 32;
+            nbq = tnb - (((unsigned int)kb) * 32U);
+            if (nbq == 0U)
+            {
+              ka = kb;
+              for (tpi = 0; tpi <= nb1; tpi++)
+              {
+                r[tpi] = a[ka];
+                ka++;
+              }
+            }
+            else
+            {
+              kbs = 32U - nbq;
+              ak = a[kb];
+              tpi = 0;
+              for (ka = kb + 1; ka <= na1; ka++)
+              {
+                t = (ak >> nbq);
+                ak = a[ka];
+                t |= (ak << kbs);
+                r[tpi] = t;
+                tpi++;
+              }
+
+              r[tpi] = (ak >> nbq);
+            }
+          }
+
+          /* Restore b. */
+          if (kbb != 32U)
+          {
+            bk = b[0];
+            kbs = 32U - kbb;
+            for (kb = 0; kb < nb1; kb++)
+            {
+              t = (bk >> kbs);
+              bk = b[kb + 1];
+              t |= (bk << kbb);
+              b[kb] = t;
+            }
+
+            b[kb] = (bk >> kbs);
+          }
+        }
+        else
+        {
+          for (tpi = 0; tpi < nr; tpi++)
+          {
+            r[tpi] = a[tpi];
+          }
+
+          y = 6;
+        }
+      }
+    }
+    else
+    {
+      for (tpi = 0; tpi < nr; tpi++)
+      {
+        r[tpi] = a[tpi];
+      }
+
+      y = 5;
+    }
+  }
+  else
+  {
+    y = -1;
+  }
+
+  return y;
+}
+
+/*
+ * Arguments    : unsigned int y[]
+ *                int n
+ * Return Type  : void
+ */
+static void uMultiWordInc(unsigned int y[], int n)
+{
+  int i;
+  unsigned int yi;
+  int carry = 1;
+  for (i = 0; i < n; i++)
+  {
+    yi = y[i] + ((unsigned int)carry);
+    y[i] = yi;
+    carry = (int)((yi < ((unsigned int)carry)) ? 1 : 0);
+  }
+}
+
+/*
+ * Arguments    : const unsigned int u1[]
+ *                const unsigned int u2[]
+ *                int n
+ * Return Type  : bool
+ */
+static bool uMultiWordLe(const unsigned int u1[], const unsigned int u2[], int n)
+{
+  return uMultiWordCmp(u1, u2, n) <= 0;
+}
+
+/*
+ * Arguments    : const unsigned int u1[]
+ *                int n1
+ *                const unsigned int u2[]
+ *                int n2
+ *                unsigned int y[]
+ *                int n
+ * Return Type  : void
+ */
+static void uMultiWordMul(const unsigned int u1[], int n1, const unsigned int
+  u2[], int n2, unsigned int y[], int n)
+{
+  int i;
+  unsigned int cb;
+  unsigned int u1i;
+  int a1;
+  int a0;
+  int ni;
+  int k;
+  int j;
+  int b1;
+  int b0;
+  unsigned int w01;
+  unsigned int yk;
+  unsigned int t;
+
+  /* Initialize output to zero */
+  if (0 <= (n - 1))
+  {
+    memset(&y[0], 0, ((unsigned int)n) * (sizeof(unsigned int)));
+  }
+
+  for (i = 0; i < n1; i++)
+  {
+    cb = 0U;
+    u1i = u1[i];
+    a1 = (int)((unsigned int)(u1i >> 16U));
+    a0 = (int)((unsigned int)(u1i & 65535U));
+    ni = n - i;
+    if (n2 <= ni)
+    {
+      ni = n2;
+    }
+
+    k = i;
+    for (j = 0; j < ni; j++)
+    {
+      u1i = u2[j];
+      b1 = (int)((unsigned int)(u1i >> 16U));
+      b0 = (int)((unsigned int)(u1i & 65535U));
+      u1i = ((unsigned int)a1) * ((unsigned int)b0);
+      w01 = ((unsigned int)a0) * ((unsigned int)b1);
+      yk = y[k] + cb;
+      cb = (unsigned int)((yk < cb) ? 1 : 0);
+      t = ((unsigned int)a0) * ((unsigned int)b0);
+      yk += t;
+      cb += (unsigned int)((yk < t) ? 1 : 0);
+      t = (u1i << 16U);
+      yk += t;
+      cb += (unsigned int)((yk < t) ? 1 : 0);
+      t = (w01 << 16U);
+      yk += t;
+      cb += (unsigned int)((yk < t) ? 1 : 0);
+      y[k] = yk;
+      cb += (u1i >> 16U);
+      cb += (w01 >> 16U);
+      cb += ((unsigned int)a1) * ((unsigned int)b1);
+      k++;
+    }
+
+    if (k < n)
+    {
+      y[k] = cb;
+    }
+  }
+}
+
+/*
+ * Arguments    : const unsigned int u1[]
+ *                int n1
+ *                unsigned int n2
+ *                unsigned int y[]
+ *                int n
+ * Return Type  : void
+ */
+static void uMultiWordShr(const unsigned int u1[], int n1, unsigned int n2,
+  unsigned int y[], int n)
+{
+  int nb;
+  int i;
+  int nc;
+  unsigned int nr;
+  int i1;
+  unsigned int nl;
+  unsigned int u1i;
+  unsigned int yi;
+  nb = ((int)n2) / 32;
+  i = 0;
+  if (nb < n1)
+  {
+    nc = n + nb;
+    if (nc > n1)
+    {
+      nc = n1;
+    }
+
+    nr = n2 - (((unsigned int)nb) * 32U);
+    if (nr > 0U)
+    {
+      nl = 32U - nr;
+      u1i = u1[nb];
+      for (i1 = nb + 1; i1 < nc; i1++)
+      {
+        yi = (u1i >> nr);
+        u1i = u1[i1];
+        y[i] = yi | (u1i << nl);
+        i++;
+      }
+
+      yi = (u1i >> nr);
+      if (nc < n1)
+      {
+        yi |= (u1[nc] << nl);
+      }
+
+      y[i] = yi;
+      i++;
+    }
+    else
+    {
+      for (i1 = nb; i1 < nc; i1++)
+      {
+        y[i] = u1[i1];
+        i++;
+      }
+    }
+  }
+
+  while (i < n)
+  {
+    y[i] = 0U;
+    i++;
+  }
+}
+
+/*
+ * Arguments    : const unsigned int u1[]
+ *                int n1
+ *                unsigned int n2
+ *                unsigned int y[]
+ *                int n
+ * Return Type  : void
+ */
+static void uMultiWordShrConv(const unsigned int u1[], int n1, unsigned int n2,
+  unsigned int y[], int n)
+{
+  unsigned int n2m1;
+  int nb;
+  unsigned int maskHalfLSB;
+  int i;
+  unsigned int maskLSB;
+  unsigned int mask;
+  bool doRoundUp = false;
+  unsigned int u1b;
+  bool tieCond = false;
+  n2m1 = n2 - 1U;
+  nb = ((int)n2m1) / 32;
+  if (nb < n1)
+  {
+    n2m1 -= (unsigned int)((int)(nb * 32));
+    maskHalfLSB = (1U << n2m1);
+    maskLSB = (2U << n2m1);
+    mask = maskLSB - 1U;
+    u1b = u1[nb];
+
+    /* BitsBeingShiftedOff>LSB/2 || (Tie condition && Odd LSB condition) */
+    doRoundUp = ((u1b & mask) > maskHalfLSB);
+    tieCond = ((u1b & mask) == maskHalfLSB);
+    if (tieCond && (nb > 0))
+    {
+      i = 0;
+      while ((!doRoundUp) && (i < nb))
+      {
+        doRoundUp = (u1[i] != 0U);
+        i++;
+      }
+    }
+
+    if ((!doRoundUp) && tieCond)
+    {
+      if (nb > 0)
+      {
+        i = 0;
+        while (tieCond && (i < nb))
+        {
+          tieCond = (u1[i] == 0U);
+          i++;
+        }
+      }
+
+      if (n2m1 < 31U)
+      {
+        doRoundUp = (tieCond && ((u1b & maskLSB) != 0U));
+      }
+      else
+      {
+        if ((nb < (n1 - 1)) && (n2m1 == 31U))
+        {
+          doRoundUp = (tieCond && ((u1[nb + 1] & 1U) != 0U));
+        }
+      }
+    }
+  }
+
+  uMultiWordShr(u1, n1, n2, y, n);
+  i = 0;
+  while (doRoundUp && (i < n))
+  {
+    y[i]++;
+    doRoundUp = ((y[i] == 0U) && doRoundUp);
+    i++;
+  }
+}
+
+/*
  * function [AudioSteam]  = impnse_fixpt(ImpnseIsOut)
  * Arguments    : const struct0_T ImpnseIsOut
  * Return Type  : struct0_T
@@ -1325,67 +2260,102 @@ struct0_T impnse_fixpt(const struct0_T ImpnseIsOut)
   unsigned char b_idx;
   int i1;
   int i2;
-  int sumx;
-  int k;
-  short b0;
-  int i3;
-  int b_i;
-  int64m_T y[101];
-  int64m_T a1;
   int64m_T r;
+  int64m_T sumx;
+  int midm1;
   int64m_T r1;
-  static const int64m_T r2 =
+  int96m_T r2;
+  int64m_T r3;
+  int64m_T r4;
+  int b_i;
+  int96m_T y[101];
+  int96m_T a1;
+  int64m_T r5;
+  int96m_T r6;
+  int96m_T r7;
+  int64m_T r8;
+  static const int96m_T r9 =
+  {
+    {
+      0U, 0U, 0U
+    }                                  /* chunks */
+  };
+
+  int96m_T r10;
+  static const int96m_T r11 =
+  {
+    {
+      MAX_uint32_T, MAX_uint32_T, 1023U
+    }                                  /* chunks */
+  };
+
+  static const int96m_T r12 =
+  {
+    {
+      0U, 0U, 4294966272U
+    }                                  /* chunks */
+  };
+
+  int64m_T b_y;
+  static const int64m_T r13 =
   {
     {
       0U, 0U
     }                                  /* chunks */
   };
 
-  int64m_T r3;
-  static const int64m_T r4 =
+  static const int64m_T r14 =
   {
     {
-      MAX_uint32_T, 1023U
+      1U, 0U
     }                                  /* chunks */
   };
 
-  static const int64m_T r5 =
+  static const int64m_T r15 =
   {
     {
-      0U, 4294966272U
+      MAX_uint32_T, 31U
     }                                  /* chunks */
   };
 
+  int64m_T ytemp;
+  int96m_T r16;
+  int96m_T r17;
+  int64m_T r18;
+  int i3;
+  int96m_T r19;
+  int96m_T r20;
+  int96m_T r21;
+  int96m_T r22;
+  int96m_T r23;
+  int96m_T r24;
+  int96m_T r25;
   unsigned int u;
   unsigned int u1;
-  int b_y;
-  int64m_T r6;
-  int64m_T r7;
-  int64m_T r8;
-  int64m_T r9;
-  int64m_T r10;
-  int64m_T r11;
-  int64m_T r12;
-  int64m_T r13;
-  int64m_T r14;
-  short c_y[101];
+  uint64m_T r26;
+  int96m_T r27;
+  uint64m_T r28;
+  int c_y[101];
   unsigned char locs_data[99];
   int locs_size[1];
-  unsigned short fmo_2_data[99];
+  unsigned int fmo_2_data[99];
   int fmo_2_size[1];
-  int c_size_idx_0;
-  bool x_data[9999];
-  unsigned char c_data[9999];
-  int nz[101];
+  bool s_data[101];
+  int trueCount;
   bool b;
-  bool bv[101];
   signed char tmp_data[101];
-  short b_x_data[101];
+  int x_data[101];
+  int64m_T r29;
+  int64m_T r30;
+  int64m_T r31;
+  int64m_T r32;
+  uint64m_T r33;
+  uint64m_T r34;
   signed char b_tmp_data[101];
+  int64m_T hfi;
 
   AudioSteam = ImpnseIsOut;
 
-  /* 'impnse_fixpt:24' for idx = fi(1, 0, 1, 0, fm) :s_chan */
   i = (int)ImpnseIsOut.NumChan;
   for (idx = 0; idx < i; idx++)
   {
@@ -1393,343 +2363,305 @@ struct0_T impnse_fixpt(const struct0_T ImpnseIsOut)
 
     i1 = ((int)b_idx) - 1;
     i2 = 101 * i1;
-    if ((((int)AudioSteam.f[i2]) & 4194304) != 0)
+    sLong2MultiWord(AudioSteam.f[i2], (unsigned int *)(&r.chunks[0U]), 2);
+    MultiWordSignedWrap((unsigned int *)(&r.chunks[0U]), 2, 25U, (unsigned int *)
+                        (&sumx.chunks[0U]));
+    for (midm1 = 0; midm1 < 100; midm1++)
     {
-      sumx = ((int)AudioSteam.f[i2]) | -4194304;
-    }
-    else
-    {
-      sumx = ((int)AudioSteam.f[i2]) & 4194303;
-    }
-
-    for (k = 0; k < 100; k++)
-    {
-      i3 = sumx + ((int)AudioSteam.f[(k + i2) + 1]);
-      if ((i3 & 4194304) != 0)
-      {
-        sumx = i3 | -4194304;
-      }
-      else
-      {
-        sumx = i3 & 4194303;
-      }
+      sLong2MultiWord(AudioSteam.f[(midm1 + i2) + 1], (unsigned int *)
+                      (&r1.chunks[0U]), 2);
+      MultiWordSignedWrap((unsigned int *)(&r1.chunks[0U]), 2, 25U, (unsigned
+        int *)(&r3.chunks[0U]));
+      MultiWordAdd((unsigned int *)(&sumx.chunks[0U]), (unsigned int *)
+                   (&r3.chunks[0U]), (unsigned int *)(&r.chunks[0U]), 2);
+      MultiWordSignedWrap((unsigned int *)(&r.chunks[0U]), 2, 25U, (unsigned int
+        *)(&sumx.chunks[0U]));
     }
 
-    b0 = (short)div_s32_convergent(sumx, 101);
+    uLong2MultiWord(101U, (unsigned int *)(&r.chunks[0U]), 2);
+    sMultiWordDivConv((unsigned int *)(&sumx.chunks[0U]), 2, (unsigned int *)
+                      (&r.chunks[0U]), 2, (unsigned int *)(&r2.chunks[0U]), 3,
+                      (unsigned int *)(&r3.chunks[0U]), 2, (unsigned int *)
+                      (&r1.chunks[0U]), 2, (unsigned int *)(&r4.chunks[0U]), 2);
+    midm1 = MultiWord2sLong((unsigned int *)(&r2.chunks[0U]));
     for (b_i = 0; b_i < 101; b_i++)
     {
-      i3 = (int)AudioSteam.f[b_i + i2];
-      if ((i3 & 65536) != 0)
-      {
-        i3 |= -65536;
-      }
-      else
-      {
-        i3 &= 65535;
-      }
-
-      if ((((int)b0) & 65536) != 0)
-      {
-        sumx = ((int)b0) | -65536;
-      }
-      else
-      {
-        sumx = ((int)b0) & 65535;
-      }
-
-      i3 -= sumx;
-      if ((i3 & 65536) != 0)
-      {
-        i3 |= -65536;
-      }
-      else
-      {
-        i3 &= 65535;
-      }
-
-      u = (unsigned int)i3;
-      u1 = (unsigned int)i3;
-      sMultiWordMul((unsigned int *)(&u), 1, (unsigned int *)(&u1), 1, (unsigned
-        int *)(&y[b_i].chunks[0U]), 2);
+      sLong2MultiWord(AudioSteam.f[b_i + i2], (unsigned int *)(&r4.chunks[0U]),
+                      2);
+      MultiWordSignedWrap((unsigned int *)(&r4.chunks[0U]), 2, 31U, (unsigned
+        int *)(&r1.chunks[0U]));
+      sLong2MultiWord(midm1, (unsigned int *)(&r5.chunks[0U]), 2);
+      MultiWordSignedWrap((unsigned int *)(&r5.chunks[0U]), 2, 31U, (unsigned
+        int *)(&r4.chunks[0U]));
+      MultiWordSub((unsigned int *)(&r1.chunks[0U]), (unsigned int *)
+                   (&r4.chunks[0U]), (unsigned int *)(&r3.chunks[0U]), 2);
+      MultiWordSignedWrap((unsigned int *)(&r3.chunks[0U]), 2, 31U, (unsigned
+        int *)(&r8.chunks[0U]));
+      sMultiWordMul((unsigned int *)(&r8.chunks[0U]), 2, (unsigned int *)
+                    (&r8.chunks[0U]), 2, (unsigned int *)(&y[b_i].chunks[0U]), 3);
     }
 
-    MultiWordSignedWrap((unsigned int *)(&y[0].chunks[0U]), 2, 23U, (unsigned
+    MultiWordSignedWrap((unsigned int *)(&y[0].chunks[0U]), 3, 23U, (unsigned
       int *)(&a1.chunks[0U]));
-    for (k = 0; k < 100; k++)
+    for (midm1 = 0; midm1 < 100; midm1++)
     {
-      MultiWordSignedWrap((unsigned int *)(&y[k + 1].chunks[0U]), 2, 23U,
-                          (unsigned int *)(&r.chunks[0U]));
-      MultiWordAdd((unsigned int *)(&a1.chunks[0U]), (unsigned int *)(&r.chunks
-        [0U]), (unsigned int *)(&r1.chunks[0U]), 2);
-      MultiWordSignedWrap((unsigned int *)(&r1.chunks[0U]), 2, 23U, (unsigned
+      MultiWordSignedWrap((unsigned int *)(&y[midm1 + 1].chunks[0U]), 3, 23U,
+                          (unsigned int *)(&r6.chunks[0U]));
+      MultiWordAdd((unsigned int *)(&a1.chunks[0U]), (unsigned int *)
+                   (&r6.chunks[0U]), (unsigned int *)(&r7.chunks[0U]), 3);
+      MultiWordSignedWrap((unsigned int *)(&r7.chunks[0U]), 3, 23U, (unsigned
         int *)(&a1.chunks[0U]));
     }
 
-    r1 = r2;
+    r7 = r9;
     if (sMultiWordLt((unsigned int *)(&a1.chunks[0U]), (unsigned int *)
-                     (&r2.chunks[0U]), 2))
+                     (&r9.chunks[0U]), 3))
     {
-      r3 = r5;
+      r10 = r12;
     }
     else
     {
-      r3 = r4;
+      r10 = r11;
     }
 
-    b_y = 0;
-    r = r2;
-    if (!sMultiWordLe((unsigned int *)(&r3.chunks[0U]), (unsigned int *)
-                      (&r2.chunks[0U]), 2))
+    b_y = r13;
+    r6 = r9;
+    if (!sMultiWordLe((unsigned int *)(&r10.chunks[0U]), (unsigned int *)
+                      (&r9.chunks[0U]), 3))
     {
-      for (b_i = 20; b_i >= 0; b_i--)
+      r5 = r14;
+      for (b_i = 36; b_i >= 0; b_i--)
       {
-        i3 = b_y | (1 << ((unsigned int)b_i));
-        u = (unsigned int)i3;
-        u1 = (unsigned int)i3;
-        sMultiWordMul((unsigned int *)(&u), 1, (unsigned int *)(&u1), 1,
-                      (unsigned int *)(&r6.chunks[0U]), 2);
-        if (sMultiWordLe((unsigned int *)(&r6.chunks[0U]), (unsigned int *)
-                         (&r3.chunks[0U]), 2))
+        sMultiWordShl((unsigned int *)(&r14.chunks[0U]), 2, (unsigned int)b_i,
+                      (unsigned int *)(&r4.chunks[0U]), 2);
+        MultiWordSignedWrap((unsigned int *)(&r4.chunks[0U]), 2, 26U, (unsigned
+          int *)(&r1.chunks[0U]));
+        MultiWordIor((unsigned int *)(&b_y.chunks[0U]), (unsigned int *)
+                     (&r1.chunks[0U]), (unsigned int *)(&r3.chunks[0U]), 2);
+        MultiWordSignedWrap((unsigned int *)(&r3.chunks[0U]), 2, 26U, (unsigned
+          int *)(&ytemp.chunks[0U]));
+        sMultiWordMul((unsigned int *)(&ytemp.chunks[0U]), 2, (unsigned int *)
+                      (&ytemp.chunks[0U]), 2, (unsigned int *)(&r16.chunks[0U]),
+                      3);
+        if (sMultiWordLe((unsigned int *)(&r16.chunks[0U]), (unsigned int *)
+                         (&r10.chunks[0U]), 3))
         {
-          b_y = i3;
+          b_y = ytemp;
         }
       }
 
-      if (b_y < 2097151)
+      r3 = r15;
+      if (sMultiWordLt((unsigned int *)(&b_y.chunks[0U]), (unsigned int *)
+                       (&r15.chunks[0U]), 2))
       {
-        i3 = b_y + 1;
-        u = (unsigned int)i3;
-        u1 = (unsigned int)i3;
-        sMultiWordMul((unsigned int *)(&u), 1, (unsigned int *)(&u1), 1,
-                      (unsigned int *)(&r7.chunks[0U]), 2);
-        MultiWordSignedWrap((unsigned int *)(&r3.chunks[0U]), 2, 20U, (unsigned
-          int *)(&r8.chunks[0U]));
-        MultiWordSub((unsigned int *)(&r7.chunks[0U]), (unsigned int *)
-                     (&r8.chunks[0U]), (unsigned int *)(&r10.chunks[0U]), 2);
-        MultiWordSignedWrap((unsigned int *)(&r10.chunks[0U]), 2, 20U, (unsigned
-          int *)(&r12.chunks[0U]));
-        MultiWordSignedWrap((unsigned int *)(&r3.chunks[0U]), 2, 20U, (unsigned
-          int *)(&r8.chunks[0U]));
-        u = (unsigned int)b_y;
-        u1 = (unsigned int)b_y;
-        sMultiWordMul((unsigned int *)(&u), 1, (unsigned int *)(&u1), 1,
-                      (unsigned int *)(&r14.chunks[0U]), 2);
-        MultiWordSub((unsigned int *)(&r8.chunks[0U]), (unsigned int *)
-                     (&r14.chunks[0U]), (unsigned int *)(&r7.chunks[0U]), 2);
-        MultiWordSignedWrap((unsigned int *)(&r7.chunks[0U]), 2, 20U, (unsigned
-          int *)(&r10.chunks[0U]));
-        if (sMultiWordLt((unsigned int *)(&r12.chunks[0U]), (unsigned int *)
-                         (&r10.chunks[0U]), 2))
+        r4 = r14;
+        MultiWordAdd((unsigned int *)(&b_y.chunks[0U]), (unsigned int *)
+                     (&r14.chunks[0U]), (unsigned int *)(&r1.chunks[0U]), 2);
+        MultiWordSignedWrap((unsigned int *)(&r1.chunks[0U]), 2, 26U, (unsigned
+          int *)(&ytemp.chunks[0U]));
+        sMultiWordMul((unsigned int *)(&ytemp.chunks[0U]), 2, (unsigned int *)
+                      (&ytemp.chunks[0U]), 2, (unsigned int *)(&r17.chunks[0U]),
+                      3);
+        MultiWordSignedWrap((unsigned int *)(&r10.chunks[0U]), 3, 20U, (unsigned
+          int *)(&r19.chunks[0U]));
+        MultiWordSub((unsigned int *)(&r17.chunks[0U]), (unsigned int *)
+                     (&r19.chunks[0U]), (unsigned int *)(&r21.chunks[0U]), 3);
+        MultiWordSignedWrap((unsigned int *)(&r21.chunks[0U]), 3, 20U, (unsigned
+          int *)(&r23.chunks[0U]));
+        MultiWordSignedWrap((unsigned int *)(&r10.chunks[0U]), 3, 20U, (unsigned
+          int *)(&r19.chunks[0U]));
+        sMultiWordMul((unsigned int *)(&b_y.chunks[0U]), 2, (unsigned int *)
+                      (&b_y.chunks[0U]), 2, (unsigned int *)(&r25.chunks[0U]), 3);
+        MultiWordSub((unsigned int *)(&r19.chunks[0U]), (unsigned int *)
+                     (&r25.chunks[0U]), (unsigned int *)(&r17.chunks[0U]), 3);
+        MultiWordSignedWrap((unsigned int *)(&r17.chunks[0U]), 3, 20U, (unsigned
+          int *)(&r21.chunks[0U]));
+        if (sMultiWordLt((unsigned int *)(&r23.chunks[0U]), (unsigned int *)
+                         (&r21.chunks[0U]), 3))
         {
-          b_y = i3;
+          b_y = ytemp;
         }
       }
     }
 
     /*  Locate peaks */
-    if ((((int)AudioSteam.f[i2]) & 4194304) != 0)
+    sLong2MultiWord(AudioSteam.f[i2], (unsigned int *)(&r1.chunks[0U]), 2);
+    MultiWordSignedWrap((unsigned int *)(&r1.chunks[0U]), 2, 25U, (unsigned int *)
+                        (&sumx.chunks[0U]));
+    for (midm1 = 0; midm1 < 100; midm1++)
     {
-      sumx = ((int)AudioSteam.f[i2]) | -4194304;
-    }
-    else
-    {
-      sumx = ((int)AudioSteam.f[i2]) & 4194303;
-    }
-
-    for (k = 0; k < 100; k++)
-    {
-      i3 = sumx + ((int)AudioSteam.f[(k + i2) + 1]);
-      if ((i3 & 4194304) != 0)
-      {
-        sumx = i3 | -4194304;
-      }
-      else
-      {
-        sumx = i3 & 4194303;
-      }
+      sLong2MultiWord(AudioSteam.f[(midm1 + i2) + 1], (unsigned int *)
+                      (&r5.chunks[0U]), 2);
+      MultiWordSignedWrap((unsigned int *)(&r5.chunks[0U]), 2, 25U, (unsigned
+        int *)(&r4.chunks[0U]));
+      MultiWordAdd((unsigned int *)(&sumx.chunks[0U]), (unsigned int *)
+                   (&r4.chunks[0U]), (unsigned int *)(&r1.chunks[0U]), 2);
+      MultiWordSignedWrap((unsigned int *)(&r1.chunks[0U]), 2, 25U, (unsigned
+        int *)(&sumx.chunks[0U]));
     }
 
-    sLong2MultiWord((int)((short)div_s32_convergent(sumx, 101)), (unsigned int *)
-                    (&r9.chunks[0U]), 2);
-    sMultiWordShl((unsigned int *)(&r9.chunks[0U]), 2, 18U, (unsigned int *)
-                  (&r11.chunks[0U]), 2);
-    MultiWordSignedWrap((unsigned int *)(&r11.chunks[0U]), 2, 28U, (unsigned int
-      *)(&r13.chunks[0U]));
-    uLong2MultiWord(((unsigned int)((unsigned short)(((unsigned short)b_y) <<
-      ((unsigned int)4)))) * 40960U, (unsigned int *)(&r9.chunks[0U]), 2);
-    MultiWordSignedWrap((unsigned int *)(&r9.chunks[0U]), 2, 28U, (unsigned int *)
-                        (&r11.chunks[0U]));
-    MultiWordAdd((unsigned int *)(&r13.chunks[0U]), (unsigned int *)
-                 (&r11.chunks[0U]), (unsigned int *)(&r14.chunks[0U]), 2);
-    MultiWordSignedWrap((unsigned int *)(&r14.chunks[0U]), 2, 28U, (unsigned int
-      *)(&r8.chunks[0U]));
-    sMultiWordShrConv((unsigned int *)(&r8.chunks[0U]), 2, 16U, (unsigned int *)
-                      (&r7.chunks[0U]), 2);
-    AudioSteam.minHeight[i1] = MultiWord2uLong((unsigned int *)(&r7.chunks[0U]))
-      & 262143U;
+    uLong2MultiWord(101U, (unsigned int *)(&r1.chunks[0U]), 2);
+    sMultiWordDivConv((unsigned int *)(&sumx.chunks[0U]), 2, (unsigned int *)
+                      (&r1.chunks[0U]), 2, (unsigned int *)(&r17.chunks[0U]), 3,
+                      (unsigned int *)(&r4.chunks[0U]), 2, (unsigned int *)
+                      (&r5.chunks[0U]), 2, (unsigned int *)(&r18.chunks[0U]), 2);
+    i3 = MultiWord2sLong((unsigned int *)(&r17.chunks[0U]));
+    sLong2MultiWord(i3, (unsigned int *)(&r20.chunks[0U]), 3);
+    sMultiWordShl((unsigned int *)(&r20.chunks[0U]), 3, 34U, (unsigned int *)
+                  (&r22.chunks[0U]), 3);
+    MultiWordSignedWrap((unsigned int *)(&r22.chunks[0U]), 3, 28U, (unsigned int
+      *)(&r24.chunks[0U]));
+    sMultiWordShl((unsigned int *)(&b_y.chunks[0U]), 2, 4U, (unsigned int *)
+                  (&r4.chunks[0U]), 2);
+    u = MultiWord2uLong((unsigned int *)(&r4.chunks[0U]));
+    u1 = 2684354560U;
+    uMultiWordMul((unsigned int *)(&u), 1, (unsigned int *)(&u1), 1, (unsigned
+      int *)(&r26.chunks[0U]), 2);
+    uMultiWord2MultiWord((unsigned int *)(&r26.chunks[0U]), 2, (unsigned int *)(
+      &r20.chunks[0U]), 3);
+    MultiWordSignedWrap((unsigned int *)(&r20.chunks[0U]), 3, 28U, (unsigned int
+      *)(&r22.chunks[0U]));
+    MultiWordAdd((unsigned int *)(&r24.chunks[0U]), (unsigned int *)
+                 (&r22.chunks[0U]), (unsigned int *)(&r27.chunks[0U]), 3);
+    MultiWordSignedWrap((unsigned int *)(&r27.chunks[0U]), 3, 28U, (unsigned int
+      *)(&r25.chunks[0U]));
+    sMultiWordShrConv((unsigned int *)(&r25.chunks[0U]), 3, 32U, (unsigned int *)
+                      (&r19.chunks[0U]), 3);
+    sMultiWord2MultiWord((unsigned int *)(&r19.chunks[0U]), 3, (unsigned int *)(
+      &r28.chunks[0U]), 2);
+    MultiWordUnsignedWrap((unsigned int *)(&r28.chunks[0U]), 2, 30U, (unsigned
+      int *)(&r26.chunks[0U]));
+    AudioSteam.minHeight[i1] = r26;
 
     /*  min height to be 'peak';  3 std above mean */
-    for (k = 0; k < 101; k++)
+
+    for (midm1 = 0; midm1 < 101; midm1++)
     {
-      i3 = k + i2;
+      i3 = midm1 + i2;
       if (AudioSteam.f[i3] < 0)
       {
-        c_y[k] = (short)(-AudioSteam.f[i3]);
+        c_y[midm1] = -AudioSteam.f[i3];
       }
       else
       {
-        c_y[k] = AudioSteam.f[i3];
+        c_y[midm1] = AudioSteam.f[i3];
       }
+
+      s_data[midm1] = false;
     }
 
     detectpeek(c_y, AudioSteam.minHeight[((int)b_idx) - 1], locs_data, locs_size,
                fmo_2_data, fmo_2_size);
 
-    c_size_idx_0 = (int)((signed char)locs_size[0]);
-    if (((signed char)locs_size[0]) != 0)
+    midm1 = locs_size[0];
+    for (i3 = 0; i3 < midm1; i3++)
     {
-      sumx = (int)((((signed char)locs_size[0]) != 1) ? 1 : 0);
-      i3 = c_size_idx_0 - 1;
-      for (k = 0; k < 101; k++)
-      {
-        for (b_y = 0; b_y <= i3; b_y++)
-        {
-          c_data[b_y + (c_size_idx_0 * k)] = (unsigned char)(((unsigned int)
-            ((int)(k + 1))) - ((unsigned int)locs_data[sumx * b_y]));
-        }
-      }
+      s_data[((int)locs_data[i3]) - 1] = true;
     }
 
-    sumx = c_size_idx_0 * 101;
-    for (i3 = 0; i3 < sumx; i3++)
-    {
-      x_data[i3] = (((int)c_data[i3]) == 0);
-    }
-
-    if (c_size_idx_0 == 0)
-    {
-      memset(&nz[0], 0, 101U * (sizeof(int)));
-    }
-    else
-    {
-      for (b_i = 0; b_i < 101; b_i++)
-      {
-        sumx = b_i * c_size_idx_0;
-        nz[b_i] = x_data[sumx] ? 1 : 0;
-        for (k = 2; k <= c_size_idx_0; k++)
-        {
-          nz[b_i] += x_data[(sumx + k) - 1] ? 1 : 0;
-        }
-      }
-    }
-
-    for (i3 = 0; i3 < 101; i3++)
-    {
-      AudioSteam.isOut[i3 + i2] = (nz[i3] == 1);
-    }
+    /*      s_data = sum(bsxfun(@minus, reshape((1:size(AudioSteam.f(:,idx),1)),1,[]), reshape(locs,[],1)) == 0) == 1; */
+    memcpy(&AudioSteam.isOut[i2], &s_data[0], 101U * (sizeof(bool)));
 
     /*  resize size mismatch */
-    b_y = 0;
+    trueCount = 0;
     for (b_i = 0; b_i < 101; b_i++)
     {
       b = !AudioSteam.isOut[b_i + i2];
-      bv[b_i] = b;
+      s_data[b_i] = b;
       if (b)
       {
-        b_y++;
+        trueCount++;
       }
     }
 
-    sumx = 0;
+    midm1 = 0;
     for (b_i = 0; b_i < 101; b_i++)
     {
-      if (bv[b_i])
+      if (s_data[b_i])
       {
-        tmp_data[sumx] = (signed char)(b_i + 1);
-        sumx++;
+        tmp_data[midm1] = (signed char)(b_i + 1);
+        midm1++;
       }
     }
 
-    sumx = asr_s32(b_y + ((int)((b_y < 0) ? 1 : 0)), 1U);
-    locs_size[0] = b_y;
-    for (i3 = 0; i3 < b_y; i3++)
+    midm1 = asr_s32(trueCount + ((int)((trueCount < 0) ? 1 : 0)), 1U);
+    locs_size[0] = trueCount;
+    for (i3 = 0; i3 < trueCount; i3++)
     {
-      b_x_data[i3] = AudioSteam.f[(((int)tmp_data[i3]) + i2) - 1];
+      x_data[i3] = AudioSteam.f[(((int)tmp_data[i3]) + i2) - 1];
     }
 
-    sort(b_x_data, locs_size);
-    if (b_y == (sumx * 2))
+    sort(x_data, locs_size);
+    if (trueCount == (midm1 * 2))
     {
-      i3 = ((int)b_x_data[sumx - 1]) + ((int)b_x_data[sumx]);
-      if ((i3 & 65536) != 0)
-      {
-        i3 |= -65536;
-      }
-      else
-      {
-        i3 &= 65535;
-      }
-
-      b0 = (short)(asr_s32(i3, 1U) + ((int)((((i3 & 1) == 1) && ((i3 & 2) != 0))
-        ? 1 : 0)));
+      sLong2MultiWord(x_data[midm1 - 1], (unsigned int *)(&r29.chunks[0U]), 2);
+      MultiWordSignedWrap((unsigned int *)(&r29.chunks[0U]), 2, 31U, (unsigned
+        int *)(&r30.chunks[0U]));
+      sLong2MultiWord(x_data[midm1], (unsigned int *)(&r32.chunks[0U]), 2);
+      MultiWordSignedWrap((unsigned int *)(&r32.chunks[0U]), 2, 31U, (unsigned
+        int *)(&r29.chunks[0U]));
+      MultiWordAdd((unsigned int *)(&r30.chunks[0U]), (unsigned int *)
+                   (&r29.chunks[0U]), (unsigned int *)(&r31.chunks[0U]), 2);
+      MultiWordSignedWrap((unsigned int *)(&r31.chunks[0U]), 2, 31U, (unsigned
+        int *)(&r18.chunks[0U]));
+      sMultiWordShrConv((unsigned int *)(&r18.chunks[0U]), 2, 1U, (unsigned int *)
+                        (&r5.chunks[0U]), 2);
+      midm1 = MultiWord2sLong((unsigned int *)(&r5.chunks[0U]));
     }
     else
     {
-      b0 = b_x_data[sumx];
+      midm1 = x_data[midm1];
     }
 
-    AudioSteam.repValue[i1] = (((unsigned int)b0) << ((unsigned int)7)) &
-      8388607U;
+    sLong2MultiWord(midm1, (unsigned int *)(&r31.chunks[0U]), 2);
+    sMultiWordShl((unsigned int *)(&r31.chunks[0U]), 2, 7U, (unsigned int *)
+                  (&r18.chunks[0U]), 2);
+    sMultiWord2MultiWord((unsigned int *)(&r18.chunks[0U]), 2, (unsigned int *)(
+      &r28.chunks[0U]), 2);
+    MultiWordUnsignedWrap((unsigned int *)(&r28.chunks[0U]), 2, 25U, (unsigned
+      int *)(&r33.chunks[0U]));
+    AudioSteam.repValue[i1] = r33;
 
     /*  you could also use NaN, 0, etc.... */
     /*  make a copy */
-    b_y = 0;
+    trueCount = 0;
     for (b_i = 0; b_i < 101; b_i++)
     {
       i3 = b_i + i2;
-      if ((((int)AudioSteam.f[i3]) & 65536) != 0)
-      {
-        AudioSteam.fFilt[i3] = ((int)AudioSteam.f[i3]) | -65536;
-      }
-      else
-      {
-        AudioSteam.fFilt[i3] = ((int)AudioSteam.f[i3]) & 65535;
-      }
-
+      sLong2MultiWord(AudioSteam.f[i3], (unsigned int *)(&r18.chunks[0U]), 2);
+      MultiWordSignedWrap((unsigned int *)(&r18.chunks[0U]), 2, 31U, (unsigned
+        int *)(&r31.chunks[0U]));
+      AudioSteam.fFilt[i3] = r31;
       if (AudioSteam.isOut[i3])
       {
-        b_y++;
+        trueCount++;
       }
     }
 
-    sumx = 0;
+    midm1 = 0;
     for (b_i = 0; b_i < 101; b_i++)
     {
       if (AudioSteam.isOut[b_i + i2])
       {
-        b_tmp_data[sumx] = (signed char)(b_i + 1);
-        sumx++;
+        b_tmp_data[midm1] = (signed char)(b_i + 1);
+        midm1++;
       }
     }
 
-    i1 = (int)((unsigned int)(((AudioSteam.repValue[i1] >> ((unsigned int)7)) +
-      ((unsigned int)((((AudioSteam.repValue[i1] & 64U) != 0U) &&
-                       ((AudioSteam.repValue[i1] & 63U) != 0U)) ? 1 : 0))) +
-                ((unsigned int)((((AudioSteam.repValue[i1] & 127U) == 64U) &&
-      ((AudioSteam.repValue[i1] & 128U) != 0U)) ? 1 : 0))));
-    if ((i1 & 65536) != 0)
+    r34 = AudioSteam.repValue[i1];
+    uMultiWordShrConv((unsigned int *)(&r34.chunks[0U]), 2, 7U, (unsigned int *)
+                      (&r28.chunks[0U]), 2);
+    uMultiWord2MultiWord((unsigned int *)(&r28.chunks[0U]), 2, (unsigned int *)(
+      &r18.chunks[0U]), 2);
+    MultiWordSignedWrap((unsigned int *)(&r18.chunks[0U]), 2, 31U, (unsigned int
+      *)(&hfi.chunks[0U]));
+    for (i1 = 0; i1 < trueCount; i1++)
     {
-      sumx = i1 | -65536;
-    }
-    else
-    {
-      sumx = i1 & 65535;
+      AudioSteam.fFilt[(((int)b_tmp_data[i1]) + i2) - 1] = hfi;
     }
 
-    for (i1 = 0; i1 < b_y; i1++)
-    {
-      AudioSteam.fFilt[(((int)b_tmp_data[i1]) + i2) - 1] = sumx;
-    }
+    /*  replace with median value */
+    /*      IsOutStruct = AudioSteam; % copy struct params */
   }
 
   return AudioSteam;
@@ -1760,43 +2692,70 @@ void impnse_terminate(void)
 struct0_T init_struc_fixpt(void)
 {
   struct0_T ImpnseIsOut;
-  int i;
-  static const short iv[202] =
+  static const uint64m_T r =
   {
-    396, 465, 519, 398, 409, 404, 20349, 563, 497, 503, 477, 570, 785, 759, 576,
-    446, 406, 397, 408, 558, 398, 417, 412, 413, 405, 465, 433, 440, 502, 441,
-    406, 429, 583, 523, 396, 465, 519, 398, 409, 404, -20349, 563, 497, 503, 477,
-    570, 785, 759, 576, 446, 406, 397, 408, 558, 398, 417, 412, 413, 405, 465,
-    433, 440, 502, 441, 406, 429, 583, 523, 396, 465, 519, 398, 409, 404, 20349,
-    563, 497, 503, 477, 570, 785, 759, 576, 446, 406, 397, 408, 558, 398, 417,
-    412, 413, 405, 465, 433, 440, 502, 441, 406, 429, 583, 396, 465, 519, 398,
-    409, 404, -20349, 563, 497, 503, 477, 570, 785, 759, 576, 446, 406, 397, 408,
-    558, 398, 417, 412, 413, 405, 465, 433, 440, 502, 441, 406, 429, 583, 523,
-    396, 465, 519, 398, 409, 404, 20349, 563, 497, 503, 477, 570, 785, 759, 576,
-    446, 406, 397, 408, 558, 398, 417, 412, 413, 405, 465, 433, 440, 502, 441,
-    406, 429, 583, 523, 396, 465, 519, 398, 409, 404, -20349, 563, 497, 503, 477,
-    570, 785, 759, 576, 446, 406, 397, 408, 558, 398, 417, 412, 413, 405, 465,
-    433, 440, 502, 441, 406, 429, 583
+    {
+      0U, 0U
+    }                                  /* chunks */
+  };
+
+  int i;
+  static const int iv[202] =
+  {
+    25952256, 30474240, 34013184, 26083328, 26804224, 26476544, 1333592064,
+    36896768, 32571392, 32964608, 31260672, 37355520, 51445760, 49741824,
+    37748736, 29229056, 26607616, 26017792, 26738688, 36569088, 26083328,
+    27328512, 27000832, 27066368, 26542080, 30474240, 28377088, 28835840,
+    32899072, 28901376, 26607616, 28114944, 38207488, 34275328, 25952256,
+    30474240, 34013184, 26083328, 26804224, 26476544, -1333592064, 36896768,
+    32571392, 32964608, 31260672, 37355520, 51445760, 49741824, 37748736,
+    29229056, 26607616, 26017792, 26738688, 36569088, 26083328, 27328512,
+    27000832, 27066368, 26542080, 30474240, 28377088, 28835840, 32899072,
+    28901376, 26607616, 28114944, 38207488, 34275328, 25952256, 30474240,
+    34013184, 26083328, 26804224, 26476544, 1333592064, 36896768, 32571392,
+    32964608, 31260672, 37355520, 51445760, 49741824, 37748736, 29229056,
+    26607616, 26017792, 26738688, 36569088, 26083328, 27328512, 27000832,
+    27066368, 26542080, 30474240, 28377088, 28835840, 32899072, 28901376,
+    26607616, 28114944, 38207488, 25952256, 30474240, 34013184, 26083328,
+    26804224, 26476544, -1333592064, 36896768, 32571392, 32964608, 31260672,
+    37355520, 51445760, 49741824, 37748736, 29229056, 26607616, 26017792,
+    26738688, 36569088, 26083328, 27328512, 27000832, 27066368, 26542080,
+    30474240, 28377088, 28835840, 32899072, 28901376, 26607616, 28114944,
+    38207488, 34275328, 25952256, 30474240, 34013184, 26083328, 26804224,
+    26476544, 1333592064, 36896768, 32571392, 32964608, 31260672, 37355520,
+    51445760, 49741824, 37748736, 29229056, 26607616, 26017792, 26738688,
+    36569088, 26083328, 27328512, 27000832, 27066368, 26542080, 30474240,
+    28377088, 28835840, 32899072, 28901376, 26607616, 28114944, 38207488,
+    34275328, 25952256, 30474240, 34013184, 26083328, 26804224, 26476544,
+    -1333592064, 36896768, 32571392, 32964608, 31260672, 37355520, 51445760,
+    49741824, 37748736, 29229056, 26607616, 26017792, 26738688, 36569088,
+    26083328, 27328512, 27000832, 27066368, 26542080, 30474240, 28377088,
+    28835840, 32899072, 28901376, 26607616, 28114944, 38207488
+  };
+
+  static const int64m_T r1 =
+  {
+    {
+      0U, 0U
+    }                                  /* chunks */
   };
 
   ImpnseIsOut.NumChan = 2U;
 
-  ImpnseIsOut.minHeight[0] = 0U;
-  ImpnseIsOut.repValue[0] = 0U;
-  ImpnseIsOut.minHeight[1] = 0U;
-  ImpnseIsOut.repValue[1] = 0U;
+  ImpnseIsOut.minHeight[0] = r;
+  ImpnseIsOut.repValue[0] = r;
+  ImpnseIsOut.minHeight[1] = r;
+  ImpnseIsOut.repValue[1] = r;
 
   for (i = 0; i < 202; i++)
   {
     ImpnseIsOut.f[i] = iv[i];
-    ImpnseIsOut.fFilt[i] = 0;
+    ImpnseIsOut.fFilt[i] = r1;
     ImpnseIsOut.isOut[i] = false;
   }
 
   return ImpnseIsOut;
 }
-
-
 
 /*
  * File trailer for impnse.c

@@ -329,6 +329,8 @@ static int impnse_prepare(struct comp_dev *dev)
 	struct sof_ipc_comp_config *config = dev_comp_config(dev);
 	struct comp_buffer *sourceb;
 	struct comp_buffer *sinkb;
+	struct0_T ImpnseIsOut;
+	struct0_T AudioSteam;
 	uint32_t sink_period_bytes;
 	int ret;
 
@@ -363,11 +365,9 @@ static int impnse_prepare(struct comp_dev *dev)
 	}
 	
 	impnse_init_state(cd);
-    struct0_T ImpnseIsOut;
-    struct0_T AudioSteam;
     ImpnseIsOut = init_struc_fixpt();         // function initialization - this is  required for wrapper unit testing
     AudioSteam = impnse_fixpt(ImpnseIsOut);   // function initialization - this is  required for impulse noise detection and cancellation
-
+	
 	cd->impnse_func = impnse_find_func(cd->source_format);
 	if (!cd->impnse_func) {
 		comp_err(dev, "impnse_prepare(), No processing function matching frames format");
