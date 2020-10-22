@@ -49,7 +49,7 @@ static void impnse_set_passthrough(struct comp_data *cd)
 	int i;
 
 	for (i = 0; i < PLATFORM_MAX_CHANNELS; i++)
-		cd->R_coeffs[i] = ONE_Q2_30;
+		cd->ImpnseIsOut.f[i] = ONE_Q2_30;
 }
 
 /**
