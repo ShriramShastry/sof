@@ -130,7 +130,7 @@ set(dcblock_sources dcblock/dcblock.c dcblock/dcblock_generic.c)
 set(crossover_sources crossover/crossover.c crossover/crossover_generic.c)
 set(tdfb_sources tdfb/tdfb.c tdfb/tdfb_generic.c)
 set(drc_sources drc/drc.c drc/drc_generic.c)
-set(impnse_sources impnse/impnse_fFilt.c impnse/impnse_main.c impnse/impnse_stdmlib.c impnse/impnse.c impnse/impnse_generic.c)
+set(impnse_sources impnse/impnse_fFilt.c impnse/impnse_stdmlib.c impnse/impnse.c impnse/impnse_generic.c)
 foreach(audio_module ${sof_audio_modules})
 	# first compile with no optimizations
 	sof_audio_add_module(sof_${audio_module} "" ${${audio_module}_sources})

@@ -51,7 +51,7 @@ static void impnse_s16_default(const struct comp_dev *dev,
 
 	for (ch = 0; ch < nch; ch++) {
 		state = &cd->state[ch];
-		R = cd->R_coeffs[ch];
+		R = cd->ImpnseIsOut.f[ch];
 		idx = ch;
 		for (i = 0; i < frames; i++) {
 			x = audio_stream_read_frag_s16(source, idx);
@@ -83,7 +83,7 @@ static void impnse_s24_default(const struct comp_dev *dev,
 
 	for (ch = 0; ch < nch; ch++) {
 		state = &cd->state[ch];
-		R = cd->R_coeffs[ch];
+		R = cd->ImpnseIsOut.f[ch];
 		idx = ch;
 		for (i = 0; i < frames; i++) {
 			x = audio_stream_read_frag_s32(source, idx);
@@ -114,7 +114,7 @@ static void impnse_s32_default(const struct comp_dev *dev,
 
 	for (ch = 0; ch < nch; ch++) {
 		state = &cd->state[ch];
-		R = cd->R_coeffs[ch];
+		R = cd->ImpnseIsOut.f[ch];
 		idx = ch;
 		for (i = 0; i < frames; i++) {
 			x = audio_stream_read_frag_s32(source, idx);

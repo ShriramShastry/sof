@@ -39,9 +39,6 @@ DECLARE_TR_CTX(impnse_tr, SOF_UUID(impnse_uuid), LOG_LEVEL_INFO);
 
 /**
  * \brief Sets the impulse noise filter in pass through mode.
- * The frequency response of a DCB filter is:
- * H(z) = (1 - z^-1)/(1-Rz^-1).
- * Setting R to 1 makes the filter act as a passthrough component.
  */
 static void impnse_set_passthrough(struct comp_data *cd)
 {
@@ -365,8 +362,8 @@ static int impnse_prepare(struct comp_dev *dev)
 	}
 	
 	impnse_init_state(cd);
-    ImpnseIsOut = init_struc_fixpt();         // function initialization - this is  required for wrapper unit testing
-    AudioSteam = impnse_fixpt(ImpnseIsOut);   // function initialization - this is  required for impulse noise detection and cancellation
+   ImpnseIsOut = init_struc_fixpt();         // function initialization - this is  required for wrapper unit testing
+   AudioSteam = impnse_fixpt(ImpnseIsOut);   // function initialization - this is  required for impulse noise detection and cancellation
 	
 	cd->impnse_func = impnse_find_func(cd->source_format);
 	if (!cd->impnse_func) {
