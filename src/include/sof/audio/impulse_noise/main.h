@@ -17,7 +17,7 @@
 #include <sof/audio/impulse_noise/impnse_types.h>
 
 /* Function Declarations */
-extern int impnse_main(int argc, const char * const argv[]);
+//extern int impnse_main(int argc, const char * const argv[]);
 
 #endif
 
