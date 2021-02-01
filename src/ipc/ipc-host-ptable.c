@@ -87,6 +87,7 @@ static int ipc_get_page_descriptors(struct dma *dmac, uint8_t *page_table,
 	struct dma_sg_config config;
 	struct dma_sg_elem elem;
 	struct dma_chan_data *chan;
+	uint32_t dma_copy_align;
 	int ret = 0;
 
 	/* get DMA channel from DMAC */
@@ -105,12 +106,18 @@ static int ipc_get_page_descriptors(struct dma *dmac, uint8_t *page_table,
 	dma_sg_init(&config.elem_array);
 
 	/* set up DMA descriptor */
-	elem.dest = (uint32_t)page_table;
+	elem.dest = (uintptr_t)page_table;
 	elem.src = ring->phy_addr;
 
 	/* source buffer size is always PAGE_SIZE bytes */
-	/* 20 bits for each page, round up to 32 */
-	elem.size = (ring->pages * 5 * 16 + 31) / 32;
+	/* 20 bits for each page, round up to minimum DMA copy size */
+	ret = dma_get_attribute(dmac, DMA_ATTR_COPY_ALIGNMENT, &dma_copy_align);
+	if (ret < 0) {
+		tr_err(&ipc_tr, "ipc_get_page_descriptors(): dma_get_attribute() failed");
+		goto out;
+	}
+	elem.size = (ring->pages * 20 + 7) / 8;
+	elem.size = ALIGN_UP(elem.size, dma_copy_align);
 	config.elem_array.elems = &elem;
 	config.elem_array.count = 1;
 

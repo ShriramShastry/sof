@@ -44,12 +44,58 @@ DECLARE_SOF_RT_UUID("demux", demux_uuid, 0xc4b26868, 0x1430, 0x470e,
 
 DECLARE_TR_CTX(demux_tr, SOF_UUID(demux_uuid), LOG_LEVEL_INFO);
 
+/*
+ * Check that we are not configuring routing matrix for mixing.
+ *
+ * In mux case this means, that muxed streams' configuration matrices don't
+ * have 1's in corresponding matrix indices. Also single stream matrix can't
+ * have 1's in same column as that corresponds to mixing also.
+ */
+static bool mux_mix_check(struct sof_mux_config *cfg)
+{
+	bool channel_set;
+	int i;
+	int j;
+	int k;
+
+	/* check for single matrix mixing, i.e multiple column bits are not set */
+	for (i = 0 ; i < cfg->num_streams; i++) {
+		for (j = 0 ; j < PLATFORM_MAX_CHANNELS; j++) {
+			channel_set = false;
+			for (k = 0 ; k < PLATFORM_MAX_CHANNELS; k++) {
+				if (cfg->streams[i].mask[k] & (1 << j)) {
+					if (!channel_set)
+						channel_set = true;
+					else
+						return true;
+				}
+			}
+		}
+	}
+
+	/* check for inter matrix mixing, i.e corresponding bits are not set */
+	for (i = 0 ; i < PLATFORM_MAX_CHANNELS; i++) {
+		for (j = 0 ; j < PLATFORM_MAX_CHANNELS; j++) {
+			channel_set = false;
+			for (k = 0 ; k < cfg->num_streams; k++) {
+				if (cfg->streams[k].mask[i] & (1 << j)) {
+					if (!channel_set)
+						channel_set = true;
+					else
+						return true;
+				}
+			}
+		}
+	}
+
+	return false;
+}
+
 static int mux_set_values(struct comp_dev *dev, struct comp_data *cd,
 			  struct sof_mux_config *cfg)
 {
 	uint8_t i;
 	uint8_t j;
-	bool channel_set;
 
 	comp_info(dev, "mux_set_values()");
 
@@ -82,19 +128,8 @@ static int mux_set_values(struct comp_dev *dev, struct comp_data *cd,
 	}
 
 	if (dev->comp.type == SOF_COMP_MUX) {
-		for (j = 0 ; j < PLATFORM_MAX_CHANNELS; j++) {
-			channel_set = false;
-			for (i = 0 ; i < cfg->num_streams; i++) {
-				if (popcount(cfg->streams[i].mask[j])) {
-					if (!channel_set) {
-						channel_set = true;
-					} else {
-						comp_cl_err(&comp_mux, "mux_set_values(): mux component is not able to mix channels");
-						return -EINVAL;
-					}
-				}
-			}
-		}
+		if (mux_mix_check(cfg))
+			comp_cl_err(&comp_mux, "mux_set_values(): mux component is not able to mix channels");
 	}
 
 	for (i = 0; i < cfg->num_streams; i++) {
@@ -135,8 +170,6 @@ static struct comp_dev *mux_new(const struct comp_driver *drv,
 	dev = comp_alloc(drv, COMP_SIZE(struct sof_ipc_comp_process));
 	if (!dev)
 		return NULL;
-
-	dev->state = COMP_STATE_INIT;
 
 	memcpy_s(COMP_GET_IPC(dev, sof_ipc_comp_process),
 		 sizeof(struct sof_ipc_comp_process),
@@ -319,9 +352,9 @@ static int mux_cmd(struct comp_dev *dev, int cmd, void *data,
 	}
 }
 
-static void prepare_active_look_up(struct comp_dev *dev,
-				   struct audio_stream *sink,
-				   const struct audio_stream **sources)
+static void mux_prepare_active_look_up(struct comp_dev *dev,
+				       struct audio_stream *sink,
+				       const struct audio_stream **sources)
 {
 	struct comp_data *cd = comp_get_drvdata(dev);
 	const struct audio_stream *source;
@@ -338,8 +371,42 @@ static void prepare_active_look_up(struct comp_dev *dev,
 		if (!source)
 			continue;
 
+		if ((cd->lookup[0].copy_elem[elem].in_ch >
+		    (source->channels - 1)) ||
+		    (cd->lookup[0].copy_elem[elem].out_ch >
+		    (sink->channels - 1)))
+			continue;
+
 		cd->active_lookup.copy_elem[active_elem] =
 			cd->lookup[0].copy_elem[elem];
+		active_elem++;
+		cd->active_lookup.num_elems = active_elem;
+	}
+}
+
+static void demux_prepare_active_look_up(struct comp_dev *dev,
+					 struct audio_stream *sink,
+					 const struct audio_stream *source,
+					 struct mux_look_up *look_up)
+{
+	struct comp_data *cd = comp_get_drvdata(dev);
+	uint8_t active_elem;
+	uint8_t elem;
+
+	cd->active_lookup.num_elems = 0;
+
+	active_elem = 0;
+
+	/* init pointers */
+	for (elem = 0; elem < look_up->num_elems; elem++) {
+		if ((look_up->copy_elem[elem].in_ch >
+		    (source->channels - 1)) ||
+		    (look_up->copy_elem[elem].out_ch >
+		    (sink->channels - 1)))
+			continue;
+
+		cd->active_lookup.copy_elem[active_elem] =
+			look_up->copy_elem[elem];
 		active_elem++;
 		cd->active_lookup.num_elems = active_elem;
 	}
@@ -425,9 +492,11 @@ static int demux_copy(struct comp_dev *dev)
 		if (!sinks[i])
 			continue;
 
+		demux_prepare_active_look_up(dev, &sinks[i]->stream,
+					     &source->stream, look_ups[i]);
 		buffer_invalidate(source, source_bytes);
 		cd->demux(dev, &sinks[i]->stream, &source->stream, frames,
-			  look_ups[i]);
+			  &cd->active_lookup);
 		buffer_writeback(sinks[i], sinks_bytes[i]);
 	}
 
@@ -521,7 +590,7 @@ static int mux_copy(struct comp_dev *dev)
 	}
 	sink_bytes = frames * audio_stream_frame_bytes(&sink->stream);
 
-	prepare_active_look_up(dev, &sink->stream, &sources_stream[0]);
+	mux_prepare_active_look_up(dev, &sink->stream, &sources_stream[0]);
 
 	/* produce output */
 	cd->mux(dev, &sink->stream, &sources_stream[0], frames,

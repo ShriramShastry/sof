@@ -26,10 +26,32 @@
 #include <stdarg.h>
 #include <stdint.h>
 
+extern struct tr_ctx dt_tr;
+
+#if CONFIG_TRACE_FILTERING_ADAPTIVE
+struct recent_log_entry {
+	uint32_t entry_id;
+	uint64_t message_ts;
+	uint64_t first_suppression_ts;
+	uint32_t trigger_count;
+};
+
+struct recent_trace_context {
+	struct recent_log_entry recent_entries[CONFIG_TRACE_RECENT_ENTRIES_COUNT];
+};
+#endif /* CONFIG_TRACE_FILTERING_ADAPTIVE */
+
 struct trace {
-	uint32_t pos ;	/* trace position */
+	uintptr_t pos ;	/* trace position */
 	uint32_t enable;
+#if CONFIG_TRACE_FILTERING_ADAPTIVE
+	bool user_filter_override;	/* whether filtering was overridden by user or not */
+#endif /* CONFIG_TRACE_FILTERING_ADAPTIVE */
 	spinlock_t lock; /* locking mechanism */
+
+#if CONFIG_TRACE_FILTERING_ADAPTIVE
+	struct recent_trace_context trace_core_context[CONFIG_CORE_COUNT];
+#endif
 };
 
 /* calculates total message size, both header and payload in bytes */
@@ -96,45 +118,136 @@ static inline void mtrace_event(const char *data, uint32_t length)
 	platform_shared_commit(trace, sizeof(*trace));
 }
 
+#if CONFIG_TRACE_FILTERING_VERBOSITY
 /**
- * \brief Runtime trace filtering
+ * \brief Runtime trace filtering based on verbosity level
  * \param lvl log level (LOG_LEVEL_ ERROR, INFO, DEBUG ...)
  * \param uuid uuid address
  * \return false when trace is filtered out, otherwise true
  */
-static inline bool trace_filter_pass(uint32_t lvl,
-				     const struct tr_ctx *ctx)
+static inline bool trace_filter_verbosity(uint32_t lvl, const struct tr_ctx *ctx)
 {
 	STATIC_ASSERT(LOG_LEVEL_CRITICAL < LOG_LEVEL_VERBOSE,
 		      LOG_LEVEL_CRITICAL_MUST_HAVE_LOWEST_VALUE);
 	return lvl <= ctx->level;
 }
+#endif /* CONFIG_TRACE_FILTERING_VERBOSITY */
 
-void trace_log(bool send_atomic, const void *log_entry,
-	       const struct tr_ctx *ctx, uint32_t lvl, uint32_t id_1,
-	       uint32_t id_2, int arg_count, ...)
+#if CONFIG_TRACE_FILTERING_ADAPTIVE
+static void emit_recent_entry(struct recent_log_entry *entry)
+{
+	_log_message(trace_log_unfiltered, false, LOG_LEVEL_INFO, _TRACE_INV_CLASS, &dt_tr,
+		     _TRACE_INV_ID, _TRACE_INV_ID, "Suppressed %u similar messages: %pQ",
+		     entry->trigger_count - CONFIG_TRACE_BURST_COUNT,
+		     entry->entry_id);
+
+	memset(entry, 0, sizeof(*entry));
+}
+
+static void emit_recent_entries(uint64_t current_ts)
+{
+	struct trace *trace = trace_get();
+	struct recent_log_entry *recent_entries =
+		trace->trace_core_context[cpu_get_id()].recent_entries;
+	int i;
+
+	/* Check if any tracked entries were dormant long enough to unsuppress them */
+	for (i = 0; i < CONFIG_TRACE_RECENT_ENTRIES_COUNT; i++) {
+		if (recent_entries[i].entry_id) {
+			if (current_ts - recent_entries[i].message_ts >
+			    CONFIG_TRACE_RECENT_TIME_THRESHOLD) {
+				if (recent_entries[i].trigger_count > CONFIG_TRACE_BURST_COUNT)
+					emit_recent_entry(&recent_entries[i]);
+				else
+					memset(&recent_entries[i], 0, sizeof(recent_entries[i]));
+			}
+		}
+	}
+
+	platform_shared_commit(trace, sizeof(*trace));
+}
+
+/**
+ * \brief Runtime trace flood suppression
+ * \param log_level log verbosity level
+ * \param entry ID of log entry
+ * \param message_ts message timestamp
+ * \return false when trace is filtered out, true otherwise
+ */
+static bool trace_filter_flood(uint32_t log_level, uint32_t entry, uint64_t message_ts)
+{
+	struct trace *trace = trace_get();
+	struct recent_log_entry *recent_entries =
+		trace->trace_core_context[cpu_get_id()].recent_entries;
+	struct recent_log_entry *oldest_entry = recent_entries;
+	int i;
+	bool ret;
+
+	/* don't attempt to suppress debug messages using this method, it would be uneffective */
+	if (log_level >= LOG_LEVEL_DEBUG)
+		return true;
+
+	/* check if same log entry was sent recently */
+	for (i = 0; i < CONFIG_TRACE_RECENT_ENTRIES_COUNT; i++) {
+		/* in the meantime identify the oldest or an empty entry, for reuse later */
+		if (oldest_entry->first_suppression_ts > recent_entries[i].first_suppression_ts)
+			oldest_entry = &recent_entries[i];
+
+		if (recent_entries[i].entry_id == entry) {
+			if (message_ts - recent_entries[i].first_suppression_ts <
+			    CONFIG_TRACE_RECENT_MAX_TIME &&
+			    message_ts - recent_entries[i].message_ts <
+			    CONFIG_TRACE_RECENT_TIME_THRESHOLD) {
+				recent_entries[i].trigger_count++;
+				/* refresh suppression timer */
+				recent_entries[i].message_ts = message_ts;
+
+				ret = recent_entries[i].trigger_count <= CONFIG_TRACE_BURST_COUNT;
+
+				platform_shared_commit(trace, sizeof(*trace));
+				return ret;
+			}
+
+			if (recent_entries[i].trigger_count > CONFIG_TRACE_BURST_COUNT)
+				emit_recent_entry(&recent_entries[i]);
+			else
+				memset(&recent_entries[i], 0, sizeof(recent_entries[i]));
+			platform_shared_commit(trace, sizeof(*trace));
+			return true;
+		}
+	}
+
+	/* Make room for tracking new entry, by emitting the oldest one in the filter */
+	if (oldest_entry->entry_id && oldest_entry->trigger_count > CONFIG_TRACE_BURST_COUNT)
+		emit_recent_entry(oldest_entry);
+
+	oldest_entry->entry_id = entry;
+	oldest_entry->message_ts = message_ts;
+	oldest_entry->first_suppression_ts = message_ts;
+	oldest_entry->trigger_count = 1;
+
+	platform_shared_commit(trace, sizeof(*trace));
+	return true;
+}
+#endif /* CONFIG_TRACE_FILTERING_ADAPTIVE */
+
+static void vatrace_log(bool send_atomic, uint32_t log_entry, const struct tr_ctx *ctx,
+			uint32_t lvl, uint32_t id_1, uint32_t id_2, int arg_count, va_list vargs)
 {
 	uint32_t data[MESSAGE_SIZE_DWORDS(_TRACE_EVENT_MAX_ARGUMENT_COUNT)];
 	const int message_size = MESSAGE_SIZE(arg_count);
-	struct trace *trace = trace_get();
-	va_list vl;
 	int i;
+
 #if CONFIG_TRACEM
 	unsigned long flags;
-#endif /* CONFIG_TRACEM */
-
-	if (!trace->enable || !trace_filter_pass(lvl, ctx)) {
-		platform_shared_commit(trace, sizeof(*trace));
-		return;
-	}
+	struct trace *trace = trace_get();
+#endif /* CONFIG TRACEM */
 
 	/* fill log content */
-	put_header(data, ctx->uuid_p, id_1, id_2, (uint32_t)log_entry,
-		   platform_timer_get(timer_get()));
-	va_start(vl, arg_count);
+	put_header(data, ctx->uuid_p, id_1, id_2, log_entry, platform_timer_get(timer_get()));
+
 	for (i = 0; i < arg_count; ++i)
-		data[PAYLOAD_OFFSET(i)] = va_arg(vl, uint32_t);
-	va_end(vl);
+		data[PAYLOAD_OFFSET(i)] = va_arg(vargs, uint32_t);
 
 	/* send event by */
 	if (send_atomic)
@@ -156,6 +269,57 @@ void trace_log(bool send_atomic, const void *log_entry,
 	if (lvl == LOG_LEVEL_CRITICAL)
 		mtrace_event((const char *)data, MESSAGE_SIZE(arg_count));
 #endif /* CONFIG_TRACEM */
+}
+
+void trace_log_unfiltered(bool send_atomic, const void *log_entry, const struct tr_ctx *ctx,
+			  uint32_t lvl, uint32_t id_1, uint32_t id_2, int arg_count, ...)
+{
+	struct trace *trace = trace_get();
+	va_list vl;
+
+	if (!trace->enable) {
+		platform_shared_commit(trace, sizeof(*trace));
+		return;
+	}
+
+	va_start(vl, arg_count);
+	vatrace_log(send_atomic, (uint32_t)log_entry, ctx, lvl, id_1, id_2, arg_count, vl);
+	va_end(vl);
+}
+
+void trace_log_filtered(bool send_atomic, const void *log_entry, const struct tr_ctx *ctx,
+			uint32_t lvl, uint32_t id_1, uint32_t id_2, int arg_count, ...)
+{
+	struct trace *trace = trace_get();
+	va_list vl;
+#if CONFIG_TRACE_FILTERING_ADAPTIVE
+	uint64_t current_ts;
+#endif /* CONFIG_TRACE_FILTERING_ADAPTIVE */
+
+	if (!trace->enable) {
+		platform_shared_commit(trace, sizeof(*trace));
+		return;
+	}
+
+#if CONFIG_TRACE_FILTERING_VERBOSITY
+	if (!trace_filter_verbosity(lvl, ctx))
+		return;
+#endif /* CONFIG_TRACE_FILTERING_VERBOSITY */
+
+#if CONFIG_TRACE_FILTERING_ADAPTIVE
+	if (!trace->user_filter_override) {
+		current_ts = platform_timer_get(timer_get());
+
+		emit_recent_entries(current_ts);
+
+		if (!trace_filter_flood(lvl, (uint32_t)log_entry, current_ts))
+			return;
+	}
+#endif /* CONFIG_TRACE_FILTERING_ADAPTIVE */
+
+	va_start(vl, arg_count);
+	vatrace_log(send_atomic, (uint32_t)log_entry, ctx, lvl, id_1, id_2, arg_count, vl);
+	va_end(vl);
 }
 
 struct sof_ipc_trace_filter_elem *trace_filter_fill(struct sof_ipc_trace_filter_elem *elem,
@@ -207,7 +371,7 @@ struct sof_ipc_trace_filter_elem *trace_filter_fill(struct sof_ipc_trace_filter_
 /* update global components, which tr_ctx is stored inside special section */
 static int trace_filter_update_global(int32_t log_level, uint32_t uuid_id)
 {
-#ifndef __ZEPHYR__
+#if !defined(__ZEPHYR__) && !defined(CONFIG_LIBRARY)
 	extern void *_trace_ctx_start;
 	extern void *_trace_ctx_end;
 	struct tr_ctx *ptr = (struct tr_ctx *)&_trace_ctx_start;
@@ -223,7 +387,7 @@ static int trace_filter_update_global(int32_t log_level, uint32_t uuid_id)
 		 * when looking for specific uuid element,
 		 * then find, update and stop searching
 		 */
-		if ((uint32_t)ptr->uuid_p == uuid_id) {
+		if ((uintptr_t)ptr->uuid_p == uuid_id) {
 			ptr->level = log_level;
 			return 1;
 		}
@@ -271,8 +435,10 @@ static int trace_filter_update_instances(int32_t log_level, uint32_t uuid_id,
 	list_for_item(clist, &ipc->comp_list) {
 		icd = container_of(clist, struct ipc_comp_dev, list);
 		ctx = trace_filter_ipc_comp_context(icd);
+		if (!ctx)
+			return -EINVAL;
 		correct_comp = comp_id == -1 || icd->id == comp_id; /* todo: icd->topo_id */
-		correct_comp &= uuid_id == 0 || (uint32_t)ctx->uuid_p == uuid_id;
+		correct_comp &= uuid_id == 0 || (uintptr_t)ctx->uuid_p == uuid_id;
 		correct_comp &= pipe_id == -1 || ipc_comp_pipe_id(icd) == pipe_id;
 		if (correct_comp) {
 			ctx->level = log_level;
@@ -287,6 +453,12 @@ static int trace_filter_update_instances(int32_t log_level, uint32_t uuid_id,
 int trace_filter_update(const struct trace_filter *filter)
 {
 	int ret = 0;
+#if CONFIG_TRACE_FILTERING_ADAPTIVE
+	struct trace *trace = trace_get();
+
+	trace->user_filter_override = true;
+	platform_shared_commit(trace, sizeof(*trace));
+#endif /* CONFIG_TRACE_FILTERING_ADAPTIVE */
 
 	/* validate log level, LOG_LEVEL_CRITICAL has low value, LOG_LEVEL_VERBOSE high */
 	if (filter->log_level < LOG_LEVEL_CRITICAL ||
@@ -356,10 +528,12 @@ void trace_init(struct sof *sof)
 {
 	dma_trace_init_early(sof);
 
-	sof->trace = rzalloc(SOF_MEM_ZONE_SYS, SOF_MEM_FLAG_SHARED,
-			     SOF_MEM_CAPS_RAM, sizeof(*sof->trace));
+	sof->trace = rzalloc(SOF_MEM_ZONE_SYS_SHARED, 0, SOF_MEM_CAPS_RAM, sizeof(*sof->trace));
 	sof->trace->enable = 1;
 	sof->trace->pos = 0;
+#if CONFIG_TRACE_FILTERING_ADAPTIVE
+	sof->trace->user_filter_override = false;
+#endif /* CONFIG_TRACE_FILTERING_ADAPTIVE */
 	spinlock_init(&sof->trace->lock);
 
 	platform_shared_commit(sof->trace, sizeof(*sof->trace));

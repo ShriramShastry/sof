@@ -136,25 +136,24 @@ void trace_flush(void);
 void trace_on(void);
 void trace_off(void);
 void trace_init(struct sof *sof);
-void trace_log(bool send_atomic, const void *log_entry,
-	       const struct tr_ctx *ctx, uint32_t lvl, uint32_t id_1,
-	       uint32_t id_2, int arg_count, ...);
+void trace_log_filtered(bool send_atomic, const void *log_entry, const struct tr_ctx *ctx,
+			uint32_t lvl, uint32_t id_1, uint32_t id_2, int arg_count, ...);
+void trace_log_unfiltered(bool send_atomic, const void *log_entry, const struct tr_ctx *ctx,
+			  uint32_t lvl, uint32_t id_1, uint32_t id_2, int arg_count, ...);
 struct sof_ipc_trace_filter_elem *trace_filter_fill(struct sof_ipc_trace_filter_elem *elem,
 						    struct sof_ipc_trace_filter_elem *end,
 						    struct trace_filter *filter);
 int trace_filter_update(const struct trace_filter *elem);
 
 #define _trace_event_with_ids(lvl, class, ctx, id_1, id_2, format, ...)	\
-	_log_message(false, lvl, class, ctx, id_1, id_2,		\
-		     format, ##__VA_ARGS__)
+	_log_message(trace_log_filtered, false, lvl, class, ctx, id_1, id_2, format, ##__VA_ARGS__)
 
-#define _trace_event_atomic_with_ids(lvl, class, ctx, id_1, id_2, format, ...) \
-	_log_message(true, lvl, class, ctx, id_1,			       \
-		     id_2, format, ##__VA_ARGS__)
-
-#define trace_point(x) platform_trace_point(x)
+#define _trace_event_atomic_with_ids(lvl, class, ctx, id_1, id_2, format, ...)	\
+	_log_message(trace_log_filtered, true, lvl, class, ctx, id_1, id_2, format, ##__VA_ARGS__)
 
 #ifndef CONFIG_LIBRARY
+
+#define trace_point(x) platform_trace_point(x)
 
 #define _DECLARE_LOG_ENTRY(lvl, format, comp_class, params)	\
 	__section(".static_log." #lvl)				\
@@ -191,38 +190,36 @@ _thrown_from_macro_BASE_LOG_in_trace_h
 #define STATIC_ASSERT_ARG_SIZE(...) \
 	META_MAP(1, trace_check_size_uint32, __VA_ARGS__)
 
-#define _log_message(atomic, lvl, comp_class, ctx, id_1, id_2,		\
-		     format, ...)					\
-do {									\
-	_DECLARE_LOG_ENTRY(lvl, format, comp_class,			\
-			META_COUNT_VARAGS_BEFORE_COMPILE(__VA_ARGS__));	\
-	STATIC_ASSERT_ARG_SIZE(__VA_ARGS__);				\
-	STATIC_ASSERT(_TRACE_EVENT_MAX_ARGUMENT_COUNT >=		\
-			META_COUNT_VARAGS_BEFORE_COMPILE(__VA_ARGS__),	\
-		BASE_LOG_ASSERT_FAIL_MSG				\
-	);								\
-	trace_log(atomic, &log_entry, ctx, lvl, id_1, id_2,		\
-		  META_COUNT_VARAGS_BEFORE_COMPILE(__VA_ARGS__),	\
-		  ##__VA_ARGS__);					\
+#define _log_message(log_func, atomic, lvl, comp_class, ctx, id_1, id_2, format, ...)	\
+do {											\
+	_DECLARE_LOG_ENTRY(lvl, format, comp_class,					\
+			   META_COUNT_VARAGS_BEFORE_COMPILE(__VA_ARGS__));		\
+	STATIC_ASSERT_ARG_SIZE(__VA_ARGS__);						\
+	STATIC_ASSERT(_TRACE_EVENT_MAX_ARGUMENT_COUNT >=				\
+			META_COUNT_VARAGS_BEFORE_COMPILE(__VA_ARGS__),			\
+		BASE_LOG_ASSERT_FAIL_MSG						\
+	);										\
+	log_func(atomic, &log_entry, ctx, lvl, id_1, id_2,				\
+		 META_COUNT_VARAGS_BEFORE_COMPILE(__VA_ARGS__), ##__VA_ARGS__);		\
 } while (0)
 
 #else /* CONFIG_LIBRARY */
 
 extern int test_bench_trace;
 char *get_trace_class(uint32_t trace_class);
-#define _log_message(atomic, level, comp_class, ctx, id_1, id_2,	\
-		     format, ...)					\
-do {									\
-	(void)ctx;							\
-	(void)id_1;							\
-	(void)id_2;							\
-	if (test_bench_trace) {						\
-		char *msg = "%s " format;				\
-		fprintf(stderr, msg, get_trace_class(comp_class),	\
-			##__VA_ARGS__);					\
-		fprintf(stderr, "\n");					\
-	}								\
+#define _log_message(log_func, atomic, level, comp_class, ctx, id_1, id_2, format, ...)	\
+do {											\
+	(void)ctx;									\
+	(void)id_1;									\
+	(void)id_2;									\
+	if (test_bench_trace) {								\
+		char *msg = "%s " format;						\
+		fprintf(stderr, msg, get_trace_class(comp_class), ##__VA_ARGS__);	\
+		fprintf(stderr, "\n");							\
+	}										\
 } while (0)
+
+#define trace_point(x)  do {} while (0)
 
 #endif /* CONFIG_LIBRARY */
 
@@ -271,8 +268,8 @@ static inline int trace_filter_update(const struct trace_filter *filter)
 
 /* error tracing */
 #if CONFIG_TRACEE
-#define _trace_error_with_ids(class, ctx, id_1, id_2, format, ...)	\
-	_log_message(true, LOG_LEVEL_CRITICAL, class, ctx, id_1,	\
+#define _trace_error_with_ids(class, ctx, id_1, id_2, format, ...)			\
+	_log_message(trace_log_filtered, true, LOG_LEVEL_CRITICAL, class, ctx, id_1,	\
 		     id_2, format, ##__VA_ARGS__)
 #define trace_error_with_ids(class, ctx, id_1, id_2, format, ...)	\
 	_trace_error_with_ids(class, ctx, id_1, id_2, format, ##__VA_ARGS__)

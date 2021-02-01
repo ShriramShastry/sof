@@ -60,7 +60,8 @@ static void usage(void)
 		APP_NAME);
 	fprintf(stdout, "%s:\t -d *.ldc_file \t\tDump ldc_file information\n",
 		APP_NAME);
-	fprintf(stdout, "%s:\t -F path\t\tUpdate trace filtering\n",
+	fprintf(stdout, "%s:\t -F filter\t\tUpdate trace filter, format: "
+		"<level>=<comp1>[, <comp2>]\n",
 		APP_NAME);
 	exit(0);
 }
@@ -161,7 +162,7 @@ static int append_filter_config(struct convert_config *config, const char *input
 
 int main(int argc, char *argv[])
 {
-	static const char optstring[] = "ho:i:l:ps:c:u:tv:rd:Lf:gFn";
+	static const char optstring[] = "ho:i:l:ps:c:u:tv:rd:Lf:gF:n";
 	struct convert_config config;
 	unsigned int baud = 0;
 	const char *snapshot_file = 0;
@@ -259,6 +260,11 @@ int main(int argc, char *argv[])
 		default: /* '?' */
 			usage();
 		}
+	}
+
+	if (argc != optind) {
+		fprintf(stderr, "error: Unused parameter '%s'\n", argv[optind]);
+		usage();
 	}
 
 	if (snapshot_file)

@@ -293,7 +293,8 @@ static bool dma_multi_chan_domain_is_pending(struct ll_schedule_domain *domain,
 					continue;
 
 				*comp = dma_domain->data[i][j].task->sched_comp;
-			} else if (dma_domain->data[i][j].task->sched_comp != *comp) {
+			} else if (!dma_domain->data[i][j].task ||
+				   dma_domain->data[i][j].task->sched_comp != *comp) {
 				continue;
 			}
 
@@ -358,8 +359,7 @@ struct ll_schedule_domain *dma_multi_chan_domain_init(struct dma *dma_array,
 	domain = domain_init(SOF_SCHEDULE_LL_DMA, clk, true,
 			     &dma_multi_chan_domain_ops);
 
-	dma_domain = rzalloc(SOF_MEM_ZONE_SYS, SOF_MEM_FLAG_SHARED,
-			     SOF_MEM_CAPS_RAM, sizeof(*dma_domain));
+	dma_domain = rzalloc(SOF_MEM_ZONE_SYS_SHARED, 0, SOF_MEM_CAPS_RAM, sizeof(*dma_domain));
 	dma_domain->dma_array = dma_array;
 	dma_domain->num_dma = num_dma;
 	dma_domain->aggregated_irq = aggregated_irq;

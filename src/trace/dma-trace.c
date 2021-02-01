@@ -122,8 +122,7 @@ out:
 
 int dma_trace_init_early(struct sof *sof)
 {
-	sof->dmat = rzalloc(SOF_MEM_ZONE_SYS, SOF_MEM_FLAG_SHARED,
-			    SOF_MEM_CAPS_RAM, sizeof(*sof->dmat));
+	sof->dmat = rzalloc(SOF_MEM_ZONE_SYS_SHARED, 0, SOF_MEM_CAPS_RAM, sizeof(*sof->dmat));
 	dma_sg_init(&sof->dmat->config.elem_array);
 	spinlock_init(&sof->dmat->lock);
 
@@ -214,6 +213,19 @@ static int dma_trace_buffer_init(struct dma_trace_data *d)
 	spin_unlock_irq(&d->lock, flags);
 
 	return 0;
+}
+
+static void dma_trace_buffer_free(struct dma_trace_data *d)
+{
+	struct dma_trace_buf *buffer = &d->dmatb;
+	unsigned int flags;
+
+	spin_lock_irq(&d->lock, flags);
+
+	rfree(buffer->addr);
+	memset(buffer, 0, sizeof(*buffer));
+
+	spin_unlock_irq(&d->lock, flags);
 }
 
 #if CONFIG_DMA_GW
@@ -350,6 +362,9 @@ int dma_trace_enable(struct dma_trace_data *d)
 	schedule_task(&d->dmat_work, DMA_TRACE_PERIOD, DMA_TRACE_PERIOD);
 
 out:
+	if (err < 0)
+		dma_trace_buffer_free(d);
+
 	platform_shared_commit(d, sizeof(*d));
 
 	return err;
@@ -385,6 +400,8 @@ void dma_trace_flush(void *t)
 				(char *)buffer->w_ptr -
 				(char *)buffer->addr;
 	}
+
+	size = MIN(size, MAILBOX_TRACE_SIZE);
 
 	/* invalidate trace data */
 	dcache_invalidate_region((void *)t, size);

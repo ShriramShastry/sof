@@ -142,6 +142,15 @@ config COMP_DRC
 	  to reduce the volume of loud sounds and amplify silent sounds thus
 	  compressing an audio signal's dynamic range.
 
+config COMP_MULTIBAND_DRC
+	depends on COMP_IIR && COMP_CROSSOVER && COMP_DRC
+	bool "Multiband Dynamic Range Compressor component"
+	default n
+	help
+	  Select for Multiband Dynamic Range Compressor (DRC) component. It
+	  consists of Emphasis Equalizer, n-way Crossover Filter, per-band DRC,
+	  and Deemphasis Equalizer.
+
 config COMP_DCBLOCK
 	bool "DC Blocking Filter component"
 	default y
@@ -308,6 +317,26 @@ config COMP_TDFB
           for channels selection, channel filter coefficients, and output
           streams mixing.
 
+config COMP_CODEC_ADAPTER
+	bool "Codec adapter"
+	default n
+	help
+	  This component is an adapter between SoF components and any external third
+	  party codecs/libraries. In order to make use of it the library itself should
+	  be statically linked with the SoF FW binary image and the codec details, such as its
+	  ID or specific methods provided in generic interface object located under
+	  "src\include\sof\audio\codec_adapter\interfaces.h". It is possible to link several
+	  different codecs and use them in parallel.
+
+if COMP_CODEC_ADAPTER
+config CADENCE_CODEC
+	bool "Cadence codec"
+	default n
+	help
+		Select for codecs which conforms to the Cadence API.
+		This will cause codec adapter component to include header
+		files specific to CADENCE base codecs.
+endif
 endmenu # "Audio components"
 
 menu "Data formats"

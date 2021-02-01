@@ -13,7 +13,9 @@
 #include <sof/common.h>
 #include <sof/debug/panic.h>
 #include <sof/drivers/edma.h>
+#include <sof/drivers/interrupt.h>
 #include <sof/drivers/ipc.h>
+#include <sof/drivers/interrupt.h>
 #include <sof/drivers/timer.h>
 #include <sof/lib/alloc.h>
 #include <sof/lib/cache.h>
@@ -690,7 +692,7 @@ static int dai_comp_trigger_internal(struct comp_dev *dev, int cmd)
 		comp_info(dev, "dai_comp_trigger_internal(), XRUN");
 		dd->xrun = 1;
 
-		/* fallthrough */
+		COMPILER_FALLTHROUGH;
 	case COMP_TRIGGER_STOP:
 		comp_dbg(dev, "dai_comp_trigger_internal(), STOP");
 		ret = dma_stop(dd->chan);
@@ -700,6 +702,7 @@ static int dai_comp_trigger_internal(struct comp_dev *dev, int cmd)
 		comp_dbg(dev, "dai_comp_trigger_internal(), PAUSE");
 		ret = dma_pause(dd->chan);
 		dai_trigger(dd->dai, cmd, dev->direction);
+		break;
 	default:
 		break;
 	}
@@ -889,8 +892,8 @@ static int dai_config(struct comp_dev *dev, struct sof_ipc_dai_config *config)
 
 	/* cannot configure DAI while active */
 	if (dev->state == COMP_STATE_ACTIVE) {
-		comp_err(dev, "dai_config(): Component is in active state.");
-		return -EINVAL;
+		comp_info(dev, "dai_config(): Component is in active state. Ignore config");
+		return 0;
 	}
 
 	if (config->group_id) {

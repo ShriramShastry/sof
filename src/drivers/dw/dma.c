@@ -25,6 +25,7 @@
 #include <sof/bit.h>
 #include <sof/common.h>
 #include <sof/drivers/dw-dma.h>
+#include <sof/drivers/interrupt.h>
 #include <sof/drivers/timer.h>
 #include <sof/lib/alloc.h>
 #include <sof/lib/cache.h>
@@ -545,14 +546,20 @@ static int dw_dma_set_config(struct dma_chan_data *channel,
 
 		channel->desc_count = config->elem_array.count;
 
-		/* allocate descriptors for channel */
+		/*
+		 * Allocate descriptors for channel. They must be cache-line
+		 * size aligned to avoid corrupting adjacent memory when
+		 * synchronizing caches. Such corruption has been observed with
+		 * Zephyr. A generic fix will be implemented for all SOF DMA
+		 * allocations on Zephyr to always force cache-line size
+		 * alignment.
+		 */
 		if (dw_chan->lli)
 			rfree(dw_chan->lli);
 
-		dw_chan->lli = rmalloc(SOF_MEM_ZONE_SYS_RUNTIME, 0,
-				       SOF_MEM_CAPS_RAM | SOF_MEM_CAPS_DMA,
-				       sizeof(struct dw_lli) *
-				       channel->desc_count);
+		dw_chan->lli = rballoc_align(0, SOF_MEM_CAPS_RAM | SOF_MEM_CAPS_DMA,
+					sizeof(struct dw_lli) * channel->desc_count,
+					PLATFORM_DCACHE_ALIGN);
 		if (!dw_chan->lli) {
 			tr_err(&dwdma_tr, "dw_dma_set_config(): dma %d channel %d lli alloc failed",
 			       channel->dma->plat_data.id,
@@ -958,9 +965,8 @@ static int dw_dma_probe(struct dma *dma)
 	pm_runtime_get_sync(DW_DMAC_CLK, dma->plat_data.id);
 
 	/* allocate dma channels */
-	dma->chan = rzalloc(SOF_MEM_ZONE_SYS_RUNTIME, SOF_MEM_FLAG_SHARED,
-			    SOF_MEM_CAPS_RAM, sizeof(struct dma_chan_data) *
-			    dma->plat_data.channels);
+	dma->chan = rzalloc(SOF_MEM_ZONE_RUNTIME_SHARED, 0, SOF_MEM_CAPS_RAM,
+			    sizeof(struct dma_chan_data) * dma->plat_data.channels);
 
 	if (!dma->chan) {
 		tr_err(&dwdma_tr, "dw_dma_probe(): dma %d allocaction of channels failed",

@@ -29,6 +29,7 @@ src/audio/dcblock*			@cujomalainey @dgreid
 src/audio/crossover*			@cujomalainey @dgreid
 src/audio/tdfb*                         @singalsu
 src/audio/drc/*				@johnylin76 @cujomalainey @dgreid
+src/audio/multiband_drc/*		@johnylin76 @cujomalainey @dgreid
 
 # platforms
 src/platform/baytrail/*			@xiulipan
@@ -65,6 +66,10 @@ tools/test/*				@xiulipan
 tools/test/audio/*			@singalsu
 tools/ctl/*				@singalsu
 tools/tune/*				@singalsu
+tools/tune/crossover/*			@cujomalainey @johnylin76 @dgreid
+tools/tune/dcblock/*			@cujomalainey @johnylin76 @dgreid
+tools/tune/drc/*			@cujomalainey @johnylin76 @dgreid
+tools/oss-fuzz/*			@cujomalainey
 
 # build system
 **/CMakeLists.txt			@jajanusz

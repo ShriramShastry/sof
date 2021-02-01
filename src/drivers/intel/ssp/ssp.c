@@ -67,24 +67,32 @@ static void ssp_empty_tx_fifo(struct dai *dai)
 /* empty SSP receive FIFO */
 static void ssp_empty_rx_fifo(struct dai *dai)
 {
-	struct timer *timer = timer_get();
-	uint64_t deadline = platform_timer_get(timer) +
-		clock_ms_to_ticks(PLATFORM_DEFAULT_CLOCK, 1) *
-		SSP_RX_FLUSH_TIMEOUT / 1000;
+	struct ssp_pdata *ssp = dai_get_drvdata(dai);
+	uint64_t sample_ticks = clock_ticks_per_sample(PLATFORM_DEFAULT_CLOCK,
+						       ssp->params.fsync_rate);
+	uint32_t retry = SSP_RX_FLUSH_RETRY_MAX;
+	uint32_t entries;
+	uint32_t i;
 
 	/*
 	 * To make sure all the RX FIFO entries are read out for the flushing,
-	 * we need to wait until the SSSR_RNE is cleared after the SSP link is
-	 * stopped (the SSSR_BSY is cleared), otherwise, there might be
-	 * obsoleted entries remained in the FIFO, which will impact the next
-	 * run with the SSP RX and lead to samples mismatched issue.
+	 * we need to wait a minimal SSP port delay after entries are all read,
+	 * and then re-check to see if there is any subsequent entries written
+	 * to the FIFO. This will help to make sure there is no sample mismatched
+	 * issue for the next run with the SSP RX.
 	 */
-	do {
-		while (ssp_read(dai, SSSR) & SSSR_RNE)
-			/* read to empty the fifo */
+	while ((ssp_read(dai, SSSR) & SSSR_RNE) && retry--) {
+		entries = SSCR3_RFL_VAL(ssp_read(dai, SSCR3));
+		dai_dbg(dai, "ssp_empty_rx_fifo(), before flushing, entries %d", entries);
+		for (i = 0; i < entries + 1; i++)
+			/* read to try empty fifo */
 			ssp_read(dai, SSDR);
-	} while ((ssp_read(dai, SSSR) & SSSR_BSY) &&
-		 platform_timer_get(timer) < deadline);
+
+		/* wait to get valid fifo status and re-check */
+		wait_delay(sample_ticks);
+		entries = SSCR3_RFL_VAL(ssp_read(dai, SSCR3));
+		dai_dbg(dai, "ssp_empty_rx_fifo(), after flushing, entries %d", entries);
+	}
 
 	/* clear interrupt */
 	ssp_update_bits(dai, SSSR, SSSR_ROR, SSSR_ROR);
@@ -132,7 +140,6 @@ static int ssp_set_config(struct dai *dai,
 	uint32_t ssrsa;
 	uint32_t ssto;
 	uint32_t ssioc;
-	uint32_t mdiv;
 	uint32_t bdiv;
 	uint32_t data_size;
 	uint32_t frame_end_padding;
@@ -149,7 +156,6 @@ static int ssp_set_config(struct dai *dai,
 	bool inverted_frame = false;
 	bool cfs = false;
 	bool start_delay = false;
-	bool need_ecs = false;
 
 	int ret = 0;
 
@@ -158,8 +164,7 @@ static int ssp_set_config(struct dai *dai,
 	/* is playback/capture already running */
 	if (ssp->state[DAI_DIR_PLAYBACK] == COMP_STATE_ACTIVE ||
 	    ssp->state[DAI_DIR_CAPTURE] == COMP_STATE_ACTIVE) {
-		dai_info(dai, "ssp_set_config(): playback/capture already running");
-		ret = -EINVAL;
+		dai_info(dai, "ssp_set_config(): playback/capture active. Ignore config");
 		goto out;
 	}
 
@@ -324,42 +329,6 @@ static int ssp_set_config(struct dai *dai,
 			config->ssp.mclk_rate, config->ssp.mclk_id);
 		goto out;
 	}
-
-#if CONFIG_INTEL_MN
-	/* BCLK config */
-	ret = mn_set_bclk(config->dai_index, config->ssp.bclk_rate,
-			  &mdiv, &need_ecs);
-	if (ret < 0) {
-		dai_err(dai, "invalid bclk_rate = %d for dai_index = %d",
-			config->ssp.bclk_rate, config->dai_index);
-		goto out;
-	}
-#else
-	if (ssp_freq[SSP_DEFAULT_IDX].freq % config->ssp.bclk_rate != 0) {
-		dai_err(dai, "invalid bclk_rate = %d for dai_index = %d",
-			config->ssp.bclk_rate, config->dai_index);
-		goto out;
-	}
-
-	mdiv = ssp_freq[SSP_DEFAULT_IDX].freq / config->ssp.bclk_rate;
-#endif
-
-	if (need_ecs)
-		sscr0 |= SSCR0_ECS;
-
-	/* clock divisor is SCR + 1 */
-	mdiv -= 1;
-
-	/* divisor must be within SCR range */
-	if (mdiv > (SSCR0_SCR_MASK >> 8)) {
-		dai_err(dai, "ssp_set_config(): divisor %d is not within SCR range",
-			mdiv);
-		ret = -EINVAL;
-		goto out;
-	}
-
-	/* set the SCR divisor */
-	sscr0 |= SSCR0_SCR(mdiv);
 
 	/* calc frame width based on BCLK and rate - must be divisable */
 	if (config->ssp.bclk_rate % config->ssp.fsync_rate) {
@@ -652,6 +621,93 @@ out:
 	return ret;
 }
 
+/*
+ * Portion of the SSP configuration should be applied just before the
+ * SSP dai is activated, for either power saving or params runtime
+ * configurable flexibility.
+ */
+static int ssp_pre_start(struct dai *dai)
+{
+	struct ssp_pdata *ssp = dai_get_drvdata(dai);
+	struct sof_ipc_dai_config *config = &ssp->config;
+	uint32_t sscr0;
+	uint32_t mdiv;
+	bool need_ecs = false;
+
+	int ret = 0;
+
+	dai_info(dai, "ssp_pre_start()");
+
+	/* SSP active means bclk already configured. */
+	if (ssp->state[SOF_IPC_STREAM_PLAYBACK] == COMP_STATE_ACTIVE ||
+	    ssp->state[SOF_IPC_STREAM_CAPTURE] == COMP_STATE_ACTIVE)
+		return 0;
+
+	sscr0 = ssp_read(dai, SSCR0);
+
+#if CONFIG_INTEL_MN
+	/* BCLK config */
+	ret = mn_set_bclk(config->dai_index, config->ssp.bclk_rate,
+			  &mdiv, &need_ecs);
+	if (ret < 0) {
+		dai_err(dai, "invalid bclk_rate = %d for dai_index = %d",
+			config->ssp.bclk_rate, config->dai_index);
+		goto out;
+	}
+#else
+	if (ssp_freq[SSP_DEFAULT_IDX].freq % config->ssp.bclk_rate != 0) {
+		dai_err(dai, "invalid bclk_rate = %d for dai_index = %d",
+			config->ssp.bclk_rate, config->dai_index);
+		goto out;
+	}
+
+	mdiv = ssp_freq[SSP_DEFAULT_IDX].freq / config->ssp.bclk_rate;
+#endif
+
+	if (need_ecs)
+		sscr0 |= SSCR0_ECS;
+
+	/* clock divisor is SCR + 1 */
+	mdiv -= 1;
+
+	/* divisor must be within SCR range */
+	if (mdiv > (SSCR0_SCR_MASK >> 8)) {
+		dai_err(dai, "ssp_pre_start(): divisor %d is not within SCR range",
+			mdiv);
+		ret = -EINVAL;
+		goto out;
+	}
+
+	/* set the SCR divisor */
+	sscr0 &= ~SSCR0_SCR_MASK;
+	sscr0 |= SSCR0_SCR(mdiv);
+
+	ssp_write(dai, SSCR0, sscr0);
+
+	dai_info(dai, "ssp_set_config(), sscr0 = 0x%08x", sscr0);
+out:
+	platform_shared_commit(ssp, sizeof(*ssp));
+
+	return ret;
+}
+
+/*
+ * For power saving, we should do kinds of power release when the SSP
+ * dai is changed to inactive, though the runtime param configuration
+ * don't have to be reset.
+ */
+static void ssp_post_stop(struct dai *dai)
+{
+#if CONFIG_INTEL_MN
+	struct ssp_pdata *ssp = dai_get_drvdata(dai);
+
+	/* release bclk if SSP is inactive */
+	if (ssp->state[SOF_IPC_STREAM_PLAYBACK] != COMP_STATE_ACTIVE &&
+	    ssp->state[SOF_IPC_STREAM_CAPTURE] != COMP_STATE_ACTIVE)
+		mn_release_bclk(dai->index);
+#endif
+}
+
 /* get SSP hw params */
 static int ssp_get_hw_params(struct dai *dai,
 			     struct sof_ipc_stream_params  *params, int dir)
@@ -690,6 +746,9 @@ static void ssp_start(struct dai *dai, int direction)
 	struct ssp_pdata *ssp = dai_get_drvdata(dai);
 
 	spin_lock(&dai->lock);
+
+	/* request mclk/bclk */
+	ssp_pre_start(dai);
 
 	/* enable port */
 	ssp_update_bits(dai, SSCR0, SSCR0_SSE, SSCR0_SSE);
@@ -757,6 +816,8 @@ static void ssp_stop(struct dai *dai, int direction)
 		dai_info(dai, "ssp_stop(), SSP port disabled");
 	}
 
+	ssp_post_stop(dai);
+
 	spin_unlock(&dai->lock);
 }
 
@@ -818,8 +879,7 @@ static int ssp_probe(struct dai *dai)
 		return -EEXIST; /* already created */
 
 	/* allocate private data */
-	ssp = rzalloc(SOF_MEM_ZONE_SYS_RUNTIME, SOF_MEM_FLAG_SHARED,
-		      SOF_MEM_CAPS_RAM, sizeof(*ssp));
+	ssp = rzalloc(SOF_MEM_ZONE_RUNTIME_SHARED, 0, SOF_MEM_CAPS_RAM, sizeof(*ssp));
 	if (!ssp) {
 		dai_err(dai, "ssp_probe(): alloc failed");
 		return -ENOMEM;

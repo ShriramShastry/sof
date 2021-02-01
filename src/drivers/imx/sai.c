@@ -12,6 +12,7 @@
 #include <sof/drivers/sai.h>
 #include <sof/lib/dai.h>
 #include <sof/lib/dma.h>
+#include <sof/lib/wait.h>
 #include <sof/lib/uuid.h>
 #include <ipc/dai.h>
 #include <errno.h>
@@ -85,7 +86,12 @@ static void sai_stop(struct dai *dai, int direction)
 	if (!(xcsr & REG_SAI_CSR_FRDE)) {
 		/* Disable both directions and reset their FIFOs */
 		dai_update_bits(dai, REG_SAI_TCSR, REG_SAI_CSR_TERE, 0);
+		poll_for_register_delay(dai_base(dai) + REG_SAI_TCSR,
+					REG_SAI_CSR_TERE, 0, 100);
+
 		dai_update_bits(dai, REG_SAI_RCSR, REG_SAI_CSR_TERE, 0);
+		poll_for_register_delay(dai_base(dai) + REG_SAI_RCSR,
+					REG_SAI_CSR_TERE, 0, 100);
 
 		/* Software Reset for both Tx and Rx */
 		dai_update_bits(dai, REG_SAI_TCSR, REG_SAI_CSR_SR,
@@ -115,8 +121,12 @@ static inline int sai_set_config(struct dai *dai,
 	dai_info(dai, "SAI: sai_set_config");
 	uint32_t val_cr2 = 0, val_cr4 = 0, val_cr5 = 0;
 	uint32_t mask_cr2 = 0, mask_cr4 = 0, mask_cr5 = 0;
+	struct sai_pdata *sai = dai_get_drvdata(dai);
 	/* TODO: this value will be provided by config */
 	uint32_t sywd = 32;
+
+	sai->config = *config;
+	sai->params = config->sai;
 
 	switch (config->format & SOF_DAI_FMT_FORMAT_MASK) {
 	case SOF_DAI_FMT_I2S:
@@ -293,7 +303,17 @@ static int sai_trigger(struct dai *dai, int cmd, int direction)
 
 static int sai_probe(struct dai *dai)
 {
+	struct sai_pdata *sai;
+
 	dai_info(dai, "SAI: sai_probe");
+
+	/* allocate private data */
+	sai = rzalloc(SOF_MEM_ZONE_RUNTIME_SHARED, 0, SOF_MEM_CAPS_RAM, sizeof(*sai));
+	if (!sai) {
+		dai_err(dai, "sai_probe(): alloc failed");
+		return -ENOMEM;
+	}
+	dai_set_drvdata(dai, sai);
 
 	/* Software Reset for both Tx and Rx */
 	dai_update_bits(dai, REG_SAI_TCSR, REG_SAI_CSR_SR, REG_SAI_CSR_SR);
@@ -341,8 +361,10 @@ static int sai_get_hw_params(struct dai *dai,
 			     struct sof_ipc_stream_params *params,
 			     int dir)
 {
+	struct sai_pdata *sai = dai_get_drvdata(dai);
+
 	/* SAI only currently supports these parameters */
-	params->rate = 48000;
+	params->rate = sai->params.fsync_rate;
 	params->channels = 2;
 	params->buffer_fmt = 0;
 	params->frame_fmt = SOF_IPC_FRAME_S32_LE;

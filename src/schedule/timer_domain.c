@@ -29,7 +29,7 @@
  * SOF on Intel CAVS platforms currently only aligns with Zephyr when both
  * use the CAVS 19.2 MHz SSP clock. TODO - needs runtime alignment.
  */
-#if defined(CONFIG_CAVS) && !defined(CONFIG_INTEL_SSP)
+#if CONFIG_XTENSA && !CONFIG_CAVS_TIMER
 #error "Zephyr uses 19.2MHz clock derived from SSP which must be enabled."
 #endif
 
@@ -320,8 +320,7 @@ struct ll_schedule_domain *timer_domain_init(struct timer *timer, int clk,
 	domain = domain_init(SOF_SCHEDULE_LL_TIMER, clk, false,
 			     &timer_domain_ops);
 
-	timer_domain = rzalloc(SOF_MEM_ZONE_SYS, SOF_MEM_FLAG_SHARED,
-			       SOF_MEM_CAPS_RAM, sizeof(*timer_domain));
+	timer_domain = rzalloc(SOF_MEM_ZONE_SYS_SHARED, 0, SOF_MEM_CAPS_RAM, sizeof(*timer_domain));
 	timer_domain->timer = timer;
 	timer_domain->timeout = timeout;
 

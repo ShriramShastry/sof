@@ -82,6 +82,7 @@ static inline int smart_amp_alloc_memory(struct smart_amp_data *sad,
 	sad->mod_handle = rballoc(0, SOF_MEM_CAPS_RAM, mem_sz);
 	if (!sad->mod_handle)
 		goto err;
+	memset(sad->mod_handle, 0, mem_sz);
 
 	hspk = sad->mod_handle;
 
@@ -107,28 +108,28 @@ static inline int smart_amp_alloc_memory(struct smart_amp_data *sad,
 	mem_sz += size;
 
 	/* buffer : feed forward process input */
-	size = DSM_FF_BUF_SZ * sizeof(int16_t);
+	size = DSM_FF_BUF_SZ * sizeof(int32_t);
 	hspk->buf.input = rballoc(0, SOF_MEM_CAPS_RAM, size);
 	if (!hspk->buf.input)
 		goto err;
 	mem_sz += size;
 
 	/* buffer : feed forward process output */
-	size = DSM_FF_BUF_SZ * sizeof(int16_t);
+	size = DSM_FF_BUF_SZ * sizeof(int32_t);
 	hspk->buf.output = rballoc(0, SOF_MEM_CAPS_RAM, size);
 	if (!hspk->buf.output)
 		goto err;
 	mem_sz += size;
 
 	/* buffer : feedback voltage */
-	size = DSM_FF_BUF_SZ * sizeof(int16_t);
+	size = DSM_FF_BUF_SZ * sizeof(int32_t);
 	hspk->buf.voltage = rballoc(0, SOF_MEM_CAPS_RAM, size);
 	if (!hspk->buf.voltage)
 		goto err;
 	mem_sz += size;
 
 	/* buffer : feedback current */
-	size = DSM_FF_BUF_SZ * sizeof(int16_t);
+	size = DSM_FF_BUF_SZ * sizeof(int32_t);
 	hspk->buf.current = rballoc(0, SOF_MEM_CAPS_RAM, size);
 	if (!hspk->buf.current)
 		goto err;
@@ -160,6 +161,7 @@ static inline int smart_amp_alloc_memory(struct smart_amp_data *sad,
 	hspk->dsmhandle = rballoc(0, SOF_MEM_CAPS_RAM, size);
 	if (!hspk->dsmhandle)
 		goto err;
+	memset(hspk->dsmhandle, 0, size);
 	mem_sz += size;
 
 	comp_dbg(dev, "[DSM] module:%p (%d bytes used)",
@@ -254,6 +256,11 @@ static struct comp_dev *smart_amp_new(const struct comp_driver *drv,
 
 	if (smart_amp_alloc_memory(sad, dev) != 0)
 		goto error;
+
+	/* Bitwidth information is not available. Use 16bit as default.
+	 * Re-initialize in the prepare function if ncessary
+	 */
+	sad->mod_handle->bitwidth = 16;
 	if (smart_amp_init(sad->mod_handle, dev))
 		goto error;
 
@@ -390,14 +397,8 @@ static int smart_amp_ctrl_set_bin_data(struct comp_dev *dev,
 
 	assert(sad);
 
-	if (dev->state != COMP_STATE_READY) {
-		/* It is a valid request but currently this is not
-		 * supported during playback/capture. The driver will
-		 * re-send data in next resume when idle and the new
-		 * configuration will be used when playback/capture
-		 * starts.
-		 */
-		comp_err(dev, "smart_amp_ctrl_set_bin_data(): driver is busy");
+	if (dev->state < COMP_STATE_READY) {
+		comp_err(dev, "smart_amp_ctrl_set_bin_data(): driver in init!");
 		return -EBUSY;
 	}
 
@@ -599,10 +600,9 @@ static int smart_amp_copy(struct comp_dev *dev)
 	avail_frames = avail_passthrough_frames;
 
 	buffer_lock(sad->feedback_buf, &feedback_flags);
-	if (sad->feedback_buf->source->state == dev->state) {
+	if (comp_get_state(dev, sad->feedback_buf->source) == dev->state) {
 		/* feedback */
-		avail_feedback_frames = sad->feedback_buf->stream.avail /
-			audio_stream_frame_bytes(&sad->feedback_buf->stream);
+		avail_feedback_frames = audio_stream_get_avail_frames(&sad->feedback_buf->stream);
 
 		avail_frames = MIN(avail_passthrough_frames,
 				   avail_feedback_frames);
@@ -615,11 +615,15 @@ static int smart_amp_copy(struct comp_dev *dev)
 		comp_dbg(dev, "smart_amp_copy(): processing %d feedback frames (avail_passthrough_frames: %d)",
 			 avail_frames, avail_passthrough_frames);
 
+		/* perform buffer writeback after source_buf process */
+		buffer_invalidate(sad->feedback_buf, feedback_bytes);
 		sad->process(dev, &sad->feedback_buf->stream,
 			     &sad->sink_buf->stream, avail_frames,
 			     sad->config.feedback_ch_map, true);
 
 		comp_update_buffer_consume(sad->feedback_buf, feedback_bytes);
+	} else {
+		buffer_unlock(sad->feedback_buf, feedback_flags);
 	}
 
 	/* bytes calculation */
@@ -634,8 +638,10 @@ static int smart_amp_copy(struct comp_dev *dev)
 	buffer_unlock(sad->sink_buf, sink_flags);
 
 	/* process data */
+	buffer_invalidate(sad->source_buf, source_bytes);
 	sad->process(dev, &sad->source_buf->stream, &sad->sink_buf->stream,
 		     avail_frames, sad->config.source_ch_map, false);
+	buffer_writeback(sad->sink_buf, sink_bytes);
 
 	/* source/sink buffer pointers update */
 	comp_update_buffer_consume(sad->source_buf, source_bytes);
@@ -658,7 +664,9 @@ static int smart_amp_prepare(struct comp_dev *dev)
 	struct smart_amp_data *sad = comp_get_drvdata(dev);
 	struct comp_buffer *source_buffer;
 	struct list_item *blist;
+	uint32_t flags = 0;
 	int ret;
+	int bitwidth;
 
 	comp_dbg(dev, "smart_amp_prepare()");
 
@@ -670,11 +678,12 @@ static int smart_amp_prepare(struct comp_dev *dev)
 	list_for_item(blist, &dev->bsource_list) {
 		source_buffer = container_of(blist, struct comp_buffer,
 					     sink_list);
-
+		buffer_lock(source_buffer, &flags);
 		if (source_buffer->source->comp.type == SOF_COMP_DEMUX)
 			sad->feedback_buf = source_buffer;
 		else
 			sad->source_buf = source_buffer;
+		buffer_unlock(source_buffer, flags);
 	}
 
 	sad->sink_buf = list_first_item(&dev->bsink_list, struct comp_buffer,
@@ -683,34 +692,61 @@ static int smart_amp_prepare(struct comp_dev *dev)
 	sad->in_channels = sad->source_buf->stream.channels;
 	sad->out_channels = sad->sink_buf->stream.channels;
 
+	buffer_lock(sad->feedback_buf, &flags);
 	sad->feedback_buf->stream.channels = sad->config.feedback_channels;
+	sad->feedback_buf->stream.rate = sad->source_buf->stream.rate;
 
-	if (smart_amp_check_audio_fmt(sad->source_buf->stream.rate,
-				      sad->source_buf->stream.channels)) {
+	ret = smart_amp_check_audio_fmt(sad->source_buf->stream.rate,
+					sad->source_buf->stream.channels);
+	if (ret) {
 		comp_err(dev, "[DSM] Format not supported, sample rate: %d, ch: %d",
 			 sad->source_buf->stream.rate,
 			 sad->source_buf->stream.channels);
-		return -EINVAL;
+		goto error;
 	}
+	buffer_unlock(sad->feedback_buf, flags);
 
-	/* TODO:
-	 * ATM feedback buffer frame_fmt is hardcoded to s32_le. It should be
-	 * removed when parameters negotiation between pipelines will prepared
-	 */
-	if (sad->feedback_buf->stream.frame_fmt != SOF_IPC_FRAME_S32_LE) {
-		sad->feedback_buf->stream.frame_fmt = SOF_IPC_FRAME_S32_LE;
-		comp_err(dev, "smart_amp_prepare(): S32_LE format is hardcoded as workaround");
+	switch (sad->source_buf->stream.frame_fmt) {
+	case SOF_IPC_FRAME_S16_LE:
+		bitwidth = 16;
+		break;
+	case SOF_IPC_FRAME_S24_4LE:
+		bitwidth = 24;
+		break;
+	case SOF_IPC_FRAME_S32_LE:
+		bitwidth = 32;
+		break;
+	default:
+		comp_err(dev, "[DSM] smart_amp_process() error: not supported frame format %d",
+			 sad->source_buf->stream.frame_fmt);
+		goto error;
+	}
+	if (sad->mod_handle->bitwidth != bitwidth)	{
+		sad->mod_handle->bitwidth = bitwidth;
+		comp_info(dev, "[DSM] Re-initialized for %d bit processing", bitwidth);
+
+		ret = smart_amp_init(sad->mod_handle, dev);
+		if (ret) {
+			comp_err(dev, "[DSM] Re-initialization error.");
+			goto error;
+		}
+		ret = maxim_dsm_restore_param(sad->mod_handle, dev);
+		if (ret) {
+			comp_err(dev, "[DSM] Restoration error.");
+			goto error;
+		}
 	}
 
 	sad->process = get_smart_amp_process(dev);
 	if (!sad->process) {
 		comp_err(dev, "smart_amp_prepare(): get_smart_amp_process failed");
-		return -EINVAL;
+		ret = -EINVAL;
+		goto error;
 	}
 
+error:
 	smart_amp_flush(sad->mod_handle, dev);
-
-	return 0;
+	return ret;
 }
 
 static const struct comp_driver comp_smart_amp = {

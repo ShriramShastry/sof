@@ -153,41 +153,33 @@ static void init_heap_map(struct mm_heap *heap, int count)
 }
 
 /* allocate from system memory pool */
-static void *rmalloc_sys(uint32_t flags, int caps, int core, size_t bytes)
+static void *rmalloc_sys(struct mm_heap *heap, uint32_t flags, int caps, size_t bytes)
 {
-	struct mm *memmap = memmap_get();
 	void *ptr;
-	struct mm_heap *cpu_heap;
 	size_t alignment = 0;
 
-	/* use the heap dedicated for the selected core */
-	cpu_heap = memmap->system + core;
-	if ((cpu_heap->caps & caps) != caps)
+	if ((heap->caps & caps) != caps)
 		panic(SOF_IPC_PANIC_MEM);
 
 	/* align address to dcache line size */
-	if (cpu_heap->info.used % PLATFORM_DCACHE_ALIGN)
+	if (heap->info.used % PLATFORM_DCACHE_ALIGN)
 		alignment = PLATFORM_DCACHE_ALIGN -
-			(cpu_heap->info.used % PLATFORM_DCACHE_ALIGN);
+			(heap->info.used % PLATFORM_DCACHE_ALIGN);
 
 	/* always succeeds or panics */
-	if (alignment + bytes > cpu_heap->info.free) {
+	if (alignment + bytes > heap->info.free) {
 		tr_err(&mem_tr, "rmalloc_sys(): core = %d, bytes = %d",
-		       core, bytes);
+		       cpu_get_id(), bytes);
 		panic(SOF_IPC_PANIC_MEM);
 	}
-	cpu_heap->info.used += alignment;
+	heap->info.used += alignment;
 
-	ptr = (void *)(cpu_heap->heap + cpu_heap->info.used);
+	ptr = (void *)(heap->heap + heap->info.used);
 
-	cpu_heap->info.used += bytes;
-	cpu_heap->info.free -= alignment + bytes;
+	heap->info.used += bytes;
+	heap->info.free -= alignment + bytes;
 
-	if (flags & SOF_MEM_FLAG_SHARED)
-		ptr = platform_shared_get(ptr, bytes);
-
-	platform_shared_commit(cpu_heap, sizeof(*cpu_heap));
-	platform_shared_commit(memmap, sizeof(*memmap));
+	platform_shared_commit(heap, sizeof(*heap));
 
 	return ptr;
 }
@@ -198,17 +190,14 @@ static void *rmalloc_sys(uint32_t flags, int caps, int core, size_t bytes)
 static void *align_ptr(struct mm_heap *heap, uint32_t alignment,
 		       void *ptr, struct block_hdr *hdr)
 {
-	int mod_align = 0;
-
 	/* Save unaligned ptr to block hdr */
 	hdr->unaligned_ptr = ptr;
 
 	/* If ptr is not already aligned we calculate alignment shift */
-	if (alignment && (uintptr_t)ptr % alignment)
-		mod_align = alignment - ((uintptr_t)ptr % alignment);
+	if (alignment <= 1)
+		return ptr;
 
-	/* Calculate aligned pointer */
-	return (char *)ptr + mod_align;
+	return (void *)ALIGN((uintptr_t)ptr, alignment);
 }
 
 /* allocate single block */
@@ -322,39 +311,44 @@ out:
 	return ptr;
 }
 
+static inline struct mm_heap *find_in_heap_arr(struct mm_heap *heap_arr, int arr_len, void *ptr)
+{
+	struct mm_heap *heap;
+	int i;
+
+	for (i = 0; i < arr_len; i++) {
+		heap = &heap_arr[i];
+		if ((uint32_t)ptr >= heap->heap &&
+		    (uint32_t)ptr < heap->heap + heap->size)
+			return heap;
+		platform_shared_commit(heap, sizeof(*heap));
+	}
+	return NULL;
+}
+
 static struct mm_heap *get_heap_from_ptr(void *ptr)
 {
 	struct mm *memmap = memmap_get();
 	struct mm_heap *heap;
-	int i;
 
 	/* find mm_heap that ptr belongs to */
-	heap = memmap->system_runtime + cpu_get_id();
-	if ((uint32_t)ptr >= heap->heap &&
-	    (uint32_t)ptr < heap->heap + heap->size)
+	heap = find_in_heap_arr(memmap->system_runtime + cpu_get_id(), 1, ptr);
+	if (heap)
 		goto out;
 
-	platform_shared_commit(heap, sizeof(*heap));
+	heap = find_in_heap_arr(memmap->runtime, PLATFORM_HEAP_RUNTIME, ptr);
+	if (heap)
+		goto out;
 
-	for (i = 0; i < PLATFORM_HEAP_RUNTIME; i++) {
-		heap = &memmap->runtime[i];
+#if CONFIG_CORE_COUNT > 1
+	heap = find_in_heap_arr(memmap->runtime_shared, PLATFORM_HEAP_RUNTIME_SHARED, ptr);
+	if (heap)
+		goto out;
+#endif
 
-		if ((uint32_t)ptr >= heap->heap &&
-		    (uint32_t)ptr < heap->heap + heap->size)
-			goto out;
-
-		platform_shared_commit(heap, sizeof(*heap));
-	}
-
-	for (i = 0; i < PLATFORM_HEAP_BUFFER; i++) {
-		heap = &memmap->buffer[i];
-
-		if ((uint32_t)ptr >= heap->heap &&
-		    (uint32_t)ptr < heap->heap + heap->size)
-			goto out;
-
-		platform_shared_commit(heap, sizeof(*heap));
-	}
+	heap = find_in_heap_arr(memmap->buffer, PLATFORM_HEAP_BUFFER, ptr);
+	if (heap)
+		goto out;
 
 	platform_shared_commit(memmap, sizeof(*memmap));
 
@@ -428,9 +422,6 @@ static void *get_ptr_from_heap(struct mm_heap *heap, uint32_t flags,
 
 		break;
 	}
-
-	if (ptr && (flags & SOF_MEM_FLAG_SHARED))
-		ptr = platform_shared_get(ptr, bytes);
 
 	return ptr;
 }
@@ -666,6 +657,25 @@ static void *rmalloc_runtime(uint32_t flags, uint32_t caps, size_t bytes)
 				 PLATFORM_DCACHE_ALIGN);
 }
 
+#if CONFIG_CORE_COUNT > 1
+/* allocate single block for shared */
+static void *rmalloc_runtime_shared(uint32_t flags, uint32_t caps, size_t bytes)
+{
+	struct mm *memmap = memmap_get();
+	struct mm_heap *heap;
+
+	/* check shared heap for capabilities */
+	heap = get_heap_from_caps(memmap->runtime_shared, PLATFORM_HEAP_RUNTIME_SHARED, caps);
+	platform_shared_commit(memmap, sizeof(*memmap));
+	if (!heap) {
+		tr_err(&mem_tr, "rmalloc_runtime_shared(): caps = %x, bytes = %d", caps, bytes);
+		return NULL;
+	}
+
+	return get_ptr_from_heap(heap, flags, caps, bytes, PLATFORM_DCACHE_ALIGN);
+}
+#endif
+
 static void *_malloc_unlocked(enum mem_zone zone, uint32_t flags, uint32_t caps,
 			      size_t bytes)
 {
@@ -674,7 +684,7 @@ static void *_malloc_unlocked(enum mem_zone zone, uint32_t flags, uint32_t caps,
 
 	switch (zone) {
 	case SOF_MEM_ZONE_SYS:
-		ptr = rmalloc_sys(flags, caps, cpu_get_id(), bytes);
+		ptr = rmalloc_sys(memmap->system + cpu_get_id(), flags, caps, bytes);
 		break;
 	case SOF_MEM_ZONE_SYS_RUNTIME:
 		ptr = rmalloc_sys_runtime(flags, caps, cpu_get_id(), bytes);
@@ -682,6 +692,22 @@ static void *_malloc_unlocked(enum mem_zone zone, uint32_t flags, uint32_t caps,
 	case SOF_MEM_ZONE_RUNTIME:
 		ptr = rmalloc_runtime(flags, caps, bytes);
 		break;
+#if CONFIG_CORE_COUNT > 1
+	case SOF_MEM_ZONE_RUNTIME_SHARED:
+		ptr = rmalloc_runtime_shared(flags, caps, bytes);
+		break;
+	case SOF_MEM_ZONE_SYS_SHARED:
+		ptr = rmalloc_sys(memmap->system_shared, flags, caps, bytes);
+		break;
+#else
+	case SOF_MEM_ZONE_RUNTIME_SHARED:
+		ptr = rmalloc_runtime(flags, caps, bytes);
+		break;
+	case SOF_MEM_ZONE_SYS_SHARED:
+		ptr = rmalloc_sys(memmap->system, flags, caps, bytes);
+		break;
+#endif
+
 	default:
 		tr_err(&mem_tr, "rmalloc(): invalid zone");
 		panic(SOF_IPC_PANIC_MEM); /* logic non recoverable problem */
@@ -737,12 +763,12 @@ void *rzalloc_core_sys(int core, size_t bytes)
 
 	spin_lock_irq(&memmap->lock, flags);
 
-	ptr = rmalloc_sys(0, 0, core, bytes);
+	ptr = rmalloc_sys(memmap->system + core, 0, 0, bytes);
 	if (ptr)
 		bzero(ptr, bytes);
 
 	spin_unlock_irq(&memmap->lock, flags);
-
+	platform_shared_commit(memmap, sizeof(*memmap));
 	return ptr;
 }
 
@@ -783,13 +809,16 @@ static void *alloc_heap_buffer(struct mm_heap *heap, uint32_t flags,
 		platform_shared_commit(map, sizeof(*map));
 	}
 
-	/* size of requested buffer is adjusted for alignment purposes
-	 * since we span more blocks we have to assume worst case scenario
-	 */
-	bytes += alignment;
-
 	/* request spans > 1 block */
 	if (!ptr) {
+		/* size of requested buffer is adjusted for alignment purposes
+		 * since we span more blocks we have to assume worst case scenario
+		 */
+		bytes += alignment;
+
+		if (heap->size < bytes)
+			return NULL;
+
 		/*
 		 * Find the best block size for request. We know, that we failed
 		 * to find a single large enough block, so, skip those.
@@ -798,7 +827,7 @@ static void *alloc_heap_buffer(struct mm_heap *heap, uint32_t flags,
 			map = &heap->map[i];
 
 			/* allocate if block size is smaller than request */
-			if (heap->size >= bytes	&& map->block_size < bytes) {
+			if (map->block_size < bytes) {
 				ptr = alloc_cont_blocks(heap, i, caps,
 							bytes, alignment);
 				if (ptr) {
@@ -812,15 +841,10 @@ static void *alloc_heap_buffer(struct mm_heap *heap, uint32_t flags,
 		}
 	}
 
-	if (ptr && (flags & SOF_MEM_FLAG_SHARED))
-		ptr = platform_shared_get(ptr, bytes);
-
 #if CONFIG_DEBUG_BLOCK_FREE
 	if (ptr)
 		bzero(ptr, temp_bytes);
 #endif
-
-	platform_shared_commit(heap, sizeof(*heap));
 
 	return ptr;
 }
@@ -842,6 +866,7 @@ static void *_balloc_unlocked(uint32_t flags, uint32_t caps, size_t bytes,
 			break;
 
 		ptr = alloc_heap_buffer(heap, flags, caps, bytes, alignment);
+		platform_shared_commit(heap, sizeof(*heap));
 		if (ptr)
 			break;
 
@@ -874,7 +899,7 @@ void *rballoc_align(uint32_t flags, uint32_t caps, size_t bytes,
 static void _rfree_unlocked(void *ptr)
 {
 	struct mm *memmap = memmap_get();
-	struct mm_heap *cpu_heap;
+	struct mm_heap *heap;
 
 	/* sanity check - NULL ptrs are fine */
 	if (!ptr)
@@ -883,12 +908,19 @@ static void _rfree_unlocked(void *ptr)
 	/* prepare pointer if it's platform requirement */
 	ptr = platform_rfree_prepare(ptr);
 
-	/* use the heap dedicated for the selected core */
-	cpu_heap = memmap->system + cpu_get_id();
+	/* use the heap dedicated for the core or shared memory */
+#if CONFIG_CORE_COUNT > 1
+	if (is_uncached(ptr))
+		heap = memmap->system_shared;
+	else
+		heap = memmap->system + cpu_get_id();
+#else
+	heap = memmap->system;
+#endif
 
 	/* panic if pointer is from system heap */
-	if (ptr >= (void *)cpu_heap->heap &&
-	    (char *)ptr < (char *)cpu_heap->heap + cpu_heap->size) {
+	if (ptr >= (void *)heap->heap &&
+	    (char *)ptr < (char *)heap->heap + heap->size) {
 		tr_err(&mem_tr, "rfree(): attempt to free system heap = %p, cpu = %d",
 		       ptr, cpu_get_id());
 		panic(SOF_IPC_PANIC_MEM);
@@ -898,7 +930,7 @@ static void _rfree_unlocked(void *ptr)
 	free_block(ptr);
 	memmap->heap_trace_updated = 1;
 
-	platform_shared_commit(cpu_heap, sizeof(*cpu_heap));
+	platform_shared_commit(heap, sizeof(*heap));
 	platform_shared_commit(memmap, sizeof(*memmap));
 }
 
@@ -1031,6 +1063,10 @@ void heap_trace_all(int force)
 		heap_trace(memmap->buffer, PLATFORM_HEAP_BUFFER);
 		tr_info(&mem_tr, "heap: runtime status");
 		heap_trace(memmap->runtime, PLATFORM_HEAP_RUNTIME);
+#if CONFIG_CORE_COUNT > 1
+		tr_info(&mem_tr, "heap: runtime shared status");
+		heap_trace(memmap->runtime_shared, PLATFORM_HEAP_RUNTIME_SHARED);
+#endif
 	}
 
 	memmap->heap_trace_updated = 0;
@@ -1055,6 +1091,10 @@ void init_heap(struct sof *sof)
 	init_heap_map(memmap->system_runtime, PLATFORM_HEAP_SYSTEM_RUNTIME);
 
 	init_heap_map(memmap->runtime, PLATFORM_HEAP_RUNTIME);
+
+#if CONFIG_CORE_COUNT > 1
+	init_heap_map(memmap->runtime_shared, PLATFORM_HEAP_RUNTIME_SHARED);
+#endif
 
 	init_heap_map(memmap->buffer, PLATFORM_HEAP_BUFFER);
 

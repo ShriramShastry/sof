@@ -45,8 +45,8 @@ struct comp_buffer *buffer_alloc(uint32_t size, uint32_t caps, uint32_t align)
 		return NULL;
 	}
 
-	buffer->lock = rzalloc(SOF_MEM_ZONE_RUNTIME, SOF_MEM_FLAG_SHARED,
-			       SOF_MEM_CAPS_RAM, sizeof(*buffer->lock));
+	buffer->lock = rzalloc(SOF_MEM_ZONE_RUNTIME_SHARED, 0, SOF_MEM_CAPS_RAM,
+			       sizeof(*buffer->lock));
 	if (!buffer->lock) {
 		rfree(buffer);
 		tr_err(&buffer_tr, "buffer_alloc(): could not alloc lock");
@@ -99,6 +99,16 @@ struct comp_buffer *buffer_new(struct sof_ipc_buffer *desc)
 	return buffer;
 }
 
+void buffer_zero(struct comp_buffer *buffer)
+{
+	buf_dbg(buffer, "stream_zero()");
+
+	bzero(buffer->stream.addr, buffer->stream.size);
+	if (buffer->caps & SOF_MEM_CAPS_DMA)
+		dcache_writeback_region(buffer->stream.addr,
+					buffer->stream.size);
+}
+
 int buffer_set_size(struct comp_buffer *buffer, uint32_t size)
 {
 	void *new_ptr = NULL;
@@ -129,6 +139,55 @@ int buffer_set_size(struct comp_buffer *buffer, uint32_t size)
 	buffer_init(buffer, size, buffer->caps);
 
 	return 0;
+}
+
+int buffer_set_params(struct comp_buffer *buffer, struct sof_ipc_stream_params *params,
+		      bool force_update)
+{
+	int ret;
+	int i;
+
+	if (!params) {
+		buf_err(buffer, "buffer_set_params(): !params");
+		return -EINVAL;
+	}
+
+	if (buffer->hw_params_configured && !force_update)
+		return 0;
+
+	ret = audio_stream_set_params(&buffer->stream, params);
+	if (ret < 0) {
+		buf_err(buffer, "buffer_set_params(): audio_stream_set_params failed");
+		return -EINVAL;
+	}
+
+	buffer->buffer_fmt = params->buffer_fmt;
+	for (i = 0; i < SOF_IPC_MAX_CHANNELS; i++)
+		buffer->chmap[i] = params->chmap[i];
+
+	buffer->hw_params_configured = true;
+
+	return 0;
+}
+
+bool buffer_params_match(struct comp_buffer *buffer, struct sof_ipc_stream_params *params,
+			 uint32_t flag)
+{
+	assert(params && buffer);
+
+	if ((flag & BUFF_PARAMS_FRAME_FMT) &&
+	    buffer->stream.frame_fmt != params->frame_fmt)
+		return false;
+
+	if ((flag & BUFF_PARAMS_RATE) &&
+	    buffer->stream.rate != params->rate)
+		return false;
+
+	if ((flag & BUFF_PARAMS_CHANNELS) &&
+	    buffer->stream.channels != params->channels)
+		return false;
+
+	return true;
 }
 
 /* free component in the pipeline */

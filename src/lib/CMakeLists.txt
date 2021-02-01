@@ -3,6 +3,8 @@
 if(CONFIG_LIBRARY)
 	add_local_sources(sof
 		lib.c
+		dai.c
+		dma.c
 		notifier.c
                 agent.c)
 	return()
