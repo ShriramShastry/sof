@@ -31,7 +31,7 @@ for k = 1:length(Files)
         %  * Output range: [-1.0, 1.0]; regulated to Q2.30: (-2.0, 2.0)
         
         figure(figNo+1)
-        drcasinfixed = get_drc_asin(Files(k).folder, Files(k).name);
+        drcasinfixed = get_drc_asin( Files(k).name);
         
         Index     = drcasinfixed.idx;
         Inptasine = drcasinfixed.inasine/2^30;
@@ -87,7 +87,7 @@ for k = 1:length(Files)
     if contains(foldername,pattern) && contains(filename,'drc_sin_fixed') && contains(ext,extn)  && Files(k).bytes > 1
         % C:\Users\shastry\source\Work\Audio\SourceCode\a_v_03\Models\drc_Existing_CodeWrapper\drc_sin_fixed\drc_sin_fixed\Results
         figure(figNo+2)
-        drcsinfixed = get_drc_sine_fixed(Files(k).folder, Files(k).name);
+        drcsinfixed = get_drc_sine_fixed( Files(k).name);
         idx         = drcsinfixed.idx;
         fixptvector = drcsinfixed.insine/2.^30;    % in Radian
         fixptsine   = drcsinfixed.outsine/2.^31;
@@ -128,7 +128,7 @@ for k = 1:length(Files)
     if contains(foldername,pattern) && contains(filename,'drc_pow_fixed') && contains(ext,extn)  && Files(k).bytes > 1
         % C:\Users\shastry\source\Work\Audio\SourceCode\a_v_03\Models\drc_Existing_CodeWrapper\drc_pow_fixed\drc_power_fixed\Results
         figure(figNo+3)
-        drcpowfixed = get_drc_pow(Files(k).folder, Files(k).name);
+        drcpowfixed = get_drc_pow( Files(k).name);
         
         Idxi   = drcpowfixed.idxi;  % Base
         Idxj   = drcpowfixed.idxj;  % Exponent
@@ -168,7 +168,7 @@ for k = 1:length(Files)
     if contains(foldername,pattern) && contains(filename,'drc_inv_fixed') && contains(ext,extn)  && Files(k).bytes > 1
         % C:\Users\shastry\source\Work\Audio\SourceCode\a_v_03\Models\drc_Existing_CodeWrapper\drc_inv_fixed\drc_inv_fixed\Results
         figure(figNo+4)
-        drcinvfixed = get_drc_inv(Files(k).folder, Files(k).name);
+        drcinvfixed = get_drc_inv( Files(k).name);
         
         Index = drcinvfixed.idx;
         InputInverse = drcinvfixed.ininv/2^12;
@@ -205,7 +205,7 @@ for k = 1:length(Files)
         % C:\Users\shastry\source\Work\Audio\SourceCode\a_v_03\Models\drc_Existing_CodeWrapper\drc_db2mag_fixed\drc_db2mag\Results
         %         ATTENTION - this covered
         figure(figNo+4)
-        drcdb2mag = get_drc_db2mag(Files(k).folder, Files(k).name);
+        drcdb2mag = get_drc_db2mag( Files(k).name);
         
         drcdb2mag.Index = dataArray{:, 1};
         drcdb2mag.Invaldb = dataArray{:, 2};
@@ -242,7 +242,7 @@ for k = 1:length(Files)
         
         % C:\Users\shastry\source\Work\Audio\SourceCode\a_v_03\Models\drc_Existing_CodeWrapper\drc_lin2db_fixed\drc_lin2dB_fixed\drc_lin2dB_fixed\Results
         figure(figNo+5)
-        mag2dB = get_drc_mag2db(Files(k).folder, Files(k).name);
+        mag2dB = get_drc_mag2db( Files(k).name);
         
         Index     = mag2dB.idx;
         Inpmag2db = mag2dB.testvector/2^26;
@@ -253,7 +253,6 @@ for k = 1:length(Files)
         y = mag2db(x);
         
         subplot(2,2,1);
-%         x = 1:length(x);
         plot(x,y,'b-x','linewidth',2.0); hold on; grid on;
         xlabel('Numpts');ylabel('Mag[dB]');
         legend('mag2dB');title('fltpt-mag2db');
@@ -269,38 +268,6 @@ for k = 1:length(Files)
         xlabel('Numpts');ylabel('THD+N');legend('THD+N')
         title('fltpt-fixpt-mag2db');
     end
-%     if contains(foldername,pattern) && contains(filename,'mag2dB') && contains(ext,extn)  && Files(k).bytes > 1
-%         %  * Input is Q8.24 (max 128.0)
-%         %  * output is Q12.20 (max 2048.0)
-%         % C:\Users\shastry\source\Work\Audio\SourceCode\a_v_03\Models\drc_Existing_CodeWrapper\drc_db2mag_fixed\drc_db2mag\Results
-%         figure(figNo+5)
-%         mag2dB = get_drc_mag2db(Files(k).folder, Files(k).name);
-%         
-%         Index     = mag2dB.idx;
-%         Inpmag2db = mag2dB.testvector/2^26;
-%         Outmag2db = mag2dB.Fixlog10linear/2^21;
-%         
-%         x = (-31.9:0.1:31.9);
-%         x(x<0) = NaN;
-%         y = mag2db(x);
-%         
-%         subplot(2,2,1);
-% %         x = 1:length(x);
-%         plot(x,y,'b-x','linewidth',2.0); hold on; grid on;
-%         xlabel('Numpts');ylabel('Mag[dB]');
-%         legend('mag2dB');title('fltpt-mag2db');
-%         
-%         subplot(2,2,2);
-%         plot(Inpmag2db,Outmag2db,'r-x','linewidth',2.0); hold on; grid on;
-%         xlabel('Numpts');ylabel('InvMag[x]');
-%         legend('mag2db');title('fixpt-mag2db');
-%         
-%         subplot(2,2,3:4);
-%         Error = rms(y(321:end)) - rms(Outmag2db(321:end));
-%         plot(Index,20*log10(sqrt(mean(Error.^2))),'r-x'); hold on; grid on;
-%         xlabel('Numpts');ylabel('THD+N');legend('THD+N')
-%         title('fltpt-fixpt-mag2db');
-%     end
     
 end
 clearvars

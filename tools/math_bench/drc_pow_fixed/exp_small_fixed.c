@@ -1,5 +1,10 @@
+// SPDX - License - Identifier: BSD - 3 - Clause
+//
+//Copyright(c) 2020 Intel Corporation.All rights reserved.
+//
+//Author : Shriram Shastry <malladi.sastry@linux.intel.com>
 #include <stdint.h>
-#include "/../Users/shastry/source/Work/Audio/SourceCode/a_v_03/Models/drc_Existing_CodeWrapper/common/typdef.h"
+#include "/../common/typdef.h"
 /* Exponent function for small values of x. This function calculates
  * fairly accurately exponent for x in range -2.0 .. +2.0. The iteration
  * uses first 11 terms of Taylor series approximation for exponent

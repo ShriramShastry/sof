@@ -4,7 +4,7 @@
 %  Copyright(c) 2020 Intel Corporation. All rights reserved.
 %
 %  Author: Shriram Shastry <malladi.sastry@linux.intel.com>
-function drcinvfixed = get_drc_inv(path,filename)
+function drcinvfixed = get_drc_inv(filename)
 %---------------------------------------------------
 %---------------------------------------
 %   History
@@ -13,7 +13,6 @@ function drcinvfixed = get_drc_inv(path,filename)
 %
 %% Initialize variables.
 
-Info = dir(fullfile(path));
 Info = dir(fullfile(filename));
 fullFileName            = fullfile(Info.folder,Info.name);
 if exist(fullFileName, 'file')

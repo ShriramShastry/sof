@@ -4,7 +4,7 @@
 %  Copyright(c) 2020 Intel Corporation. All rights reserved.
 %
 %  Author: Shriram Shastry <malladi.sastry@linux.intel.com>
-function drcasinfixed = get_drc_asin(path,filename)
+function drcasinfixed = get_drc_asin(filename)
 %---------------------------------------------------
 %---------------------------------------
 %   History
@@ -13,7 +13,6 @@ function drcasinfixed = get_drc_asin(path,filename)
 %
 %% Initialize variables.
 
-Info = dir(fullfile(path));
 Info = dir(fullfile(filename));
 fullFileName            = fullfile(Info.folder,Info.name);
 if exist(fullFileName, 'file')

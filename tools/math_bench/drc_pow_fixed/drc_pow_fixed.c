@@ -1,11 +1,18 @@
-#pragma warning (disable : 4013)
+// SPDX - License - Identifier: BSD - 3 - Clause
+//
+//Copyright(c) 2020 Intel Corporation.All rights reserved.
+//
+//Author : Shriram Shastry <malladi.sastry@linux.intel.com>
+// Disable warning for'fopen': This function or variable may be unsafe
 #pragma warning (disable : 4996)
+// Disable warning for undefined; assuming extern returning int
+#pragma warning (disable : 4013) 
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
 #include "init_data.h"
 #include "decibels.h"
-#include "/../Users/shastry/source/Work/Audio/SourceCode/a_v_03/Models/drc_Existing_CodeWrapper/common/typdef.h"
+#include "/../common/typdef.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <errno.h>
@@ -142,7 +149,6 @@ int norm_int32(int32_t val)
  */
 int main(void)
 {
-	/*int32_t x[TEST_VECTOR],y = 0;*/
 	int32_t y[41];
 	uint32_t x[320];
 	int16_t i;

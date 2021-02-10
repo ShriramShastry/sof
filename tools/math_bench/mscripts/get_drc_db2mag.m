@@ -4,7 +4,7 @@
 %  Copyright(c) 2020 Intel Corporation. All rights reserved.
 %
 %  Author: Shriram Shastry <malladi.sastry@linux.intel.com>
-function drcdb2mag = get_drc_db2mag(path,filename)
+function drcdb2mag = get_drc_db2mag(filename)
 %---------------------------------------------------
 %---------------------------------------
 %   History
@@ -13,7 +13,6 @@ function drcdb2mag = get_drc_db2mag(path,filename)
 %
 %% Initialize variables.
 
-Info = dir(fullfile(path));
 Info = dir(fullfile(filename));
 fullFileName            = fullfile(Info.folder,Info.name);
 if exist(fullFileName, 'file')

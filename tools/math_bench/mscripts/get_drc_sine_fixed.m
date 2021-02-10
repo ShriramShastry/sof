@@ -5,7 +5,7 @@
 %
 %  Author: Shriram Shastry <malladi.sastry@linux.intel.com>
 %% Initialize variables.
-function drcsinfixed = get_drc_sine_fixed(path,filename)
+function drcsinfixed = get_drc_sine_fixed(filename)
 %---------------------------------------------------
 %---------------------------------------
 %   History
@@ -14,7 +14,6 @@ function drcsinfixed = get_drc_sine_fixed(path,filename)
 %
 %% Initialize variables.
 
-Info = dir(fullfile(path));
 Info = dir(fullfile(filename));
 fullFileName            = fullfile(Info.folder,Info.name);
 if exist(fullFileName, 'file')

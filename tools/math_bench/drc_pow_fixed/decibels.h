@@ -7,7 +7,7 @@
 #define __SOF_MATH_DECIBELS_H__
 
 #include <stdint.h>
-#include "/../Users/shastry/source/Work/Audio/SourceCode/a_v_03/Models/drc_Existing_CodeWrapper/common/typdef.h"
+#include "/../common/typdef.h"
 
 int32_t exp_fixed(int32_t x); /* Input is Q5.27, output is Q12.20 */
 
