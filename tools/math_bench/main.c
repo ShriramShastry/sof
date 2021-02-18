@@ -5,7 +5,8 @@
 #include "common/const.h"
 #include <errno.h>
 
-void float_runner(struct test_case *test) {
+static void float_runner(struct test_case *test)
+{
 	struct float_functions *f_func = &test->funcs.float_type;
 	for (size_t i = 0; i < test->num_val; i++) {
 		// dimmy diff check
@@ -16,7 +17,8 @@ void float_runner(struct test_case *test) {
 	}
 }
 
-void s32_runner(struct test_case* test) {
+static void s32_runner(struct test_case *test)
+{
 	struct s32_functions* f_func = &test->funcs.s32_type;
 	for (size_t i = 0; i < test->num_val; i++) {
 		// dimmy diff check
@@ -27,7 +29,8 @@ void s32_runner(struct test_case* test) {
 	}
 }
 
-void s16_runner(struct test_case* test) {
+static void s16_runner(struct test_case *test)
+{
 	struct s16_functions* f_func = &test->funcs.s16_type;
 	for (size_t i = 0; i < test->num_val; i++) {
 		// dimmy diff check
@@ -37,7 +40,9 @@ void s16_runner(struct test_case* test) {
 		// log to file?
 	}
 }
-void s8_runner(struct test_case *test) {
+
+static void s8_runner(struct test_case *test)
+{
 	struct s8_functions* f_func = &test->funcs.s8_type;
 	for (size_t i = 0; i < test->num_val; i++) {
 		// dimmy diff check
@@ -50,7 +55,8 @@ void s8_runner(struct test_case *test) {
 
 // common utility functions here like writing to csv file
 
-int main(int argc, char* argv[]) {
+int main(int argc, char *argv[])
+{
 	// parse flags
 	// e.g. flags
 	// -n test name

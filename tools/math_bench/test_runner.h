@@ -40,11 +40,11 @@ struct test_case {
 	bool  is_hardcoded_data;
 	const char* name;
 	size_t num_val;
-	
+
 	union {
 		// pass in void so we can pass in multdimentational data if we want
 		struct float_functions float_type;
-		struct s16_functions s32_type;
+		struct s32_functions s32_type;
 		struct s16_functions s16_type;
 		struct s8_functions s8_type;
 	} funcs;
