@@ -28,9 +28,9 @@ DEBUG_START
 # PCM1 <--- volume <---- ALH 0x103 BE dailink 1
 # PCM2 ---> volume ----> ALH 0x202 BE dailink 2
 # PCM4 <--- volume <---- ALH 0x2 BE dailink 4
-# PCM5 ---> volume <---- iDisp1
-# PCM6 ---> volume <---- iDisp2
-# PCM7 ---> volume <---- iDisp3
+# PCM5 ---> volume ----> iDisp1
+# PCM6 ---> volume ----> iDisp2
+# PCM7 ---> volume ----> iDisp3
 
 dnl PIPELINE_PCM_ADD(pipeline,
 dnl     pipe id, pcm, max channels, format,
@@ -147,13 +147,13 @@ DAI_ADD(sof/pipe-dai-playback.m4,
 
 # PCM Low Latency, id 0
 dnl PCM_PLAYBACK_ADD(name, pcm_id, playback)
-PCM_PLAYBACK_ADD(Headphone, 0, PIPELINE_PCM_1)
-PCM_CAPTURE_ADD(Headset mic, 1, PIPELINE_PCM_2)
-PCM_PLAYBACK_ADD(Speakers, 2, PIPELINE_PCM_3)
-PCM_CAPTURE_ADD(Microphones, 4, PIPELINE_PCM_5)
-PCM_PLAYBACK_ADD(HDMI1, 5, PIPELINE_PCM_6)
-PCM_PLAYBACK_ADD(HDMI2, 6, PIPELINE_PCM_7)
-PCM_PLAYBACK_ADD(HDMI3, 7, PIPELINE_PCM_8)
+PCM_PLAYBACK_ADD(Jack, 0, PIPELINE_PCM_1)
+PCM_CAPTURE_ADD(Jack, 1, PIPELINE_PCM_2)
+PCM_PLAYBACK_ADD(Speaker, 2, PIPELINE_PCM_3)
+PCM_CAPTURE_ADD(Microphone, 4, PIPELINE_PCM_5)
+PCM_PLAYBACK_ADD(HDMI 1, 5, PIPELINE_PCM_6)
+PCM_PLAYBACK_ADD(HDMI 2, 6, PIPELINE_PCM_7)
+PCM_PLAYBACK_ADD(HDMI 3, 7, PIPELINE_PCM_8)
 
 #
 # BE configurations - overrides config in ACPI if present
