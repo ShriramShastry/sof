@@ -74,3 +74,4 @@ ncscope.*
 
 # zephyr files
 zephyr/include/version.h
+/tools/math_bench/drc_pow_fixed/drc_power_fixed/.vs/drc_power_fixed/v16
