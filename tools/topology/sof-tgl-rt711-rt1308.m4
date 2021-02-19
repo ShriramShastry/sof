@@ -27,11 +27,11 @@ include(`platform/intel/tgl.m4')
 
 ifelse(CHANNELS, `0', ,
 `
-define(DMIC_PCM_48k_ID, `3')
+define(DMIC_PCM_48k_ID, `10')
 define(DMIC_PIPELINE_48k_ID, `4')
 define(DMIC_DAI_LINK_48k_ID, `3')
 
-define(DMIC_PCM_16k_ID, `4')
+define(DMIC_PCM_16k_ID, `11')
 define(DMIC_PIPELINE_16k_ID, `5')
 define(DMIC_DAI_LINK_16k_ID, `4')
 
@@ -47,12 +47,12 @@ DEBUG_START
 # PCM0 ---> volume ----> ALH 2 BE dailink 0
 # PCM1 <--- volume <---- ALH 3 BE dailink 1
 # PCM2 ---> volume ----> ALH 2 BE dailink 2
-# PCM3 <----volume <---- DMIC01
-# PCM4 <----volume <---- DMIC16k
 # PCM5 ---> volume <---- iDisp1
 # PCM6 ---> volume <---- iDisp2
 # PCM7 ---> volume <---- iDisp3
 # PCM8 ---> volume <---- iDisp4
+# PCM10 <----volume <---- DMIC01
+# PCM11 <----volume <---- DMIC16k
 
 dnl PIPELINE_PCM_ADD(pipeline,
 dnl     pipe id, pcm, max channels, format,
@@ -169,13 +169,13 @@ DAI_ADD(sof/pipe-dai-playback.m4,
 
 # PCM Low Latency, id 0
 dnl PCM_PLAYBACK_ADD(name, pcm_id, playback)
-PCM_PLAYBACK_ADD(Headphone, 0, PIPELINE_PCM_1)
-PCM_CAPTURE_ADD(Headset mic, 1, PIPELINE_PCM_2)
-PCM_PLAYBACK_ADD(SDW1-speakers, 2, PIPELINE_PCM_3)
-PCM_PLAYBACK_ADD(HDMI1, 5, PIPELINE_PCM_6)
-PCM_PLAYBACK_ADD(HDMI2, 6, PIPELINE_PCM_7)
-PCM_PLAYBACK_ADD(HDMI3, 7, PIPELINE_PCM_8)
-PCM_PLAYBACK_ADD(HDMI4, 8, PIPELINE_PCM_9)
+PCM_PLAYBACK_ADD(Jack, 0, PIPELINE_PCM_1)
+PCM_CAPTURE_ADD(Jack, 1, PIPELINE_PCM_2)
+PCM_PLAYBACK_ADD(Speaker, 2, PIPELINE_PCM_3)
+PCM_PLAYBACK_ADD(HDMI 1, 5, PIPELINE_PCM_6)
+PCM_PLAYBACK_ADD(HDMI 2, 6, PIPELINE_PCM_7)
+PCM_PLAYBACK_ADD(HDMI 3, 7, PIPELINE_PCM_8)
+PCM_PLAYBACK_ADD(HDMI 4, 8, PIPELINE_PCM_9)
 #
 # BE configurations - overrides config in ACPI if present
 #

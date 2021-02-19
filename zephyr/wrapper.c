@@ -277,10 +277,12 @@ uint64_t platform_timer_get(struct timer *timer)
 	uint32_t high;
 	uint64_t time;
 
-	/* read low 32 bits */
-	low = shim_read(SHIM_EXT_TIMER_STAT);
-	/* TODO: check and see whether 32bit IRQ is pending for timer */
-	high = timer->hitime;
+	do {
+		/* TODO: check and see whether 32bit IRQ is pending for timer */
+		high = timer->hitime;
+		/* read low 32 bits */
+		low = shim_read(SHIM_EXT_TIMER_STAT);
+	} while (high != timer->hitime);
 
 	time = ((uint64_t)high << 32) | low;
 
@@ -292,6 +294,18 @@ uint64_t platform_timer_get(struct timer *timer)
 	/* CAVS versions */
 	return shim_read64(SHIM_DSPWC);
 #endif
+}
+
+uint64_t platform_timer_get_atomic(struct timer *timer)
+{
+	uint32_t flags;
+	uint64_t ticks_now;
+
+	irq_local_disable(flags);
+	ticks_now = platform_timer_get(timer);
+	irq_local_enable(flags);
+
+	return ticks_now;
 }
 
 /*

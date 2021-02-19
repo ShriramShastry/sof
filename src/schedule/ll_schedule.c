@@ -238,7 +238,7 @@ static int schedule_ll_domain_set(struct ll_schedule_data *sch,
 	total = atomic_add(&sch->domain->total_num_tasks, 1);
 	if (total == 0)
 		/* First task in domain over all cores: actiivate it */
-		domain_set(sch->domain, platform_timer_get_noirq(timer_get()));
+		domain_set(sch->domain, platform_timer_get_atomic(timer_get()));
 
 	if (total == 0 || !registered) {
 		/* First task on core: count and enable it */
@@ -324,8 +324,11 @@ static int schedule_ll_task(void *data, struct task *task, uint64_t start,
 {
 	struct ll_schedule_data *sch = data;
 	struct ll_task_pdata *pdata;
+	struct ll_task_pdata *reg_pdata;
 	struct list_item *tlist;
 	struct task *curr_task;
+	struct task *registrable_task = NULL;
+	struct pipeline_task *pipe_task;
 	uint32_t flags;
 	int ret = 0;
 
@@ -353,6 +356,47 @@ static int schedule_ll_task(void *data, struct task *task, uint64_t start,
 
 	pdata->period = period;
 
+	/* for full synchronous domain, calculate ratio and initialize skip_cnt for task */
+	if (sch->domain->full_sync) {
+		pdata->ratio = 1;
+		pdata->skip_cnt = (uint16_t)SOF_TASK_SKIP_COUNT;
+
+		/* get the registrable task */
+		list_for_item(tlist, &sch->tasks) {
+			curr_task = container_of(tlist, struct task, list);
+			pipe_task = pipeline_task_get(curr_task);
+
+			/* registrable task found */
+			if (pipe_task->registrable) {
+				registrable_task = curr_task;
+				break;
+			}
+		}
+
+		/* we found a registrable task */
+		if (registrable_task) {
+			reg_pdata = ll_sch_get_pdata(registrable_task);
+
+			/* update ratio for all tasks */
+			list_for_item(tlist, &sch->tasks) {
+				curr_task = container_of(tlist, struct task, list);
+				pdata = ll_sch_get_pdata(curr_task);
+
+				/* the assumption is that the registrable
+				 * task has the smallest period
+				 */
+				if (pdata->period >= reg_pdata->period) {
+					pdata->ratio = period / reg_pdata->period;
+				} else {
+					tr_err(&ll_tr,
+					       "schedule_ll_task(): registrable task has a period longer than current task");
+					ret = -EINVAL;
+					goto out;
+				}
+			}
+		}
+	}
+
 	/* insert task into the list */
 	schedule_ll_task_insert(task, &sch->tasks);
 
@@ -366,7 +410,7 @@ static int schedule_ll_task(void *data, struct task *task, uint64_t start,
 	task->start = sch->domain->ticks_per_ms * start / 1000;
 
 	if (sch->domain->synchronous)
-		task->start += platform_timer_get_noirq(timer_get());
+		task->start += platform_timer_get_atomic(timer_get());
 	else
 		task->start += sch->domain->last_tick;
 
@@ -467,7 +511,7 @@ static int reschedule_ll_task(void *data, struct task *task, uint64_t start)
 	time = sch->domain->ticks_per_ms * start / 1000;
 
 	if (sch->domain->synchronous)
-		time += platform_timer_get_noirq(timer_get());
+		time += platform_timer_get_atomic(timer_get());
 	else
 		time += sch->domain->last_tick;
 
@@ -514,7 +558,7 @@ static void scheduler_free_ll(void *data)
 static void ll_scheduler_recalculate_tasks(struct ll_schedule_data *sch,
 					   struct clock_notify_data *clk_data)
 {
-	uint64_t current = platform_timer_get_noirq(timer_get());
+	uint64_t current = platform_timer_get_atomic(timer_get());
 	struct list_item *tlist;
 	struct task *task;
 	uint64_t delta_ms;
