@@ -48,6 +48,12 @@ void s8_runner(struct test_case *test) {
 	}
 }
 
+void (*TB_Handler_states[]) (void) = { &float_runner,
+							  & s8_runner,
+							  & s16_runner,
+							  & s32_runner
+};
+
 // common utility functions here like writing to csv file
 
 int main(int argc, char* argv[]) {
@@ -56,7 +62,9 @@ int main(int argc, char* argv[]) {
 	// -n test name
 	// register tests
 	// lookup test based on name
-	int type_of_test = 1, test = 0;
+	int type_of_test = 1, test = 0; /* This should be global*/
+
+	(*TB_Handler_states[type_of_test - TEST_TYPE_FLOAT])();
 
 	switch (type_of_test) {
 	case TEST_TYPE_FLOAT:
