@@ -53,7 +53,10 @@ n_phi = length(phi_rad);
 steer_az = bf.steer_az*pi/180;
 steer_el = bf.steer_el*pi/180;
 mu = ones(1,N_half) * 10^(bf.mu_db/20);
-
+% 0=def;1=svd;2=svd(wosinc);3=pwelch;4=mscohere(pwelch(svd)));5==mscohere(pwelch(svd(sinc))));6=pwelch(sinc(center)));7=svd(pwelch(center))
+DEBUG_DIAG_LOAD_ON = 1; 
+% 0=def;1=hann;2=hamming;3=taylorwin;4=chebwin;
+DEBUG_SELT_FILT_ON = 2; 
 %% Source at distance r
 [src_x, src_y, src_z] = source_xyz(bf.steer_r, steer_az, steer_el);
 
@@ -70,6 +73,28 @@ for n=1:bf.num_filters
 			+(bf.mic_y(n) - bf.mic_y(m))^2 ...
 			+(bf.mic_z(n) - bf.mic_z(m))^2);
             Gamma_vv(:,n,m) = sinc(2*pi*f*lnm/bf.c);
+            if isequal(DEBUG_DIAG_LOAD_ON,1)
+                Gamma_vv(:,n,m) = svd(sinc(2*pi*f*lnm/bf.c), 'econ');
+            elseif isequal(DEBUG_DIAG_LOAD_ON,2)
+                % bad perf
+                Gamma_vv(:,n,m) = svd((2*pi*f*lnm/bf.c), 'econ');
+            elseif isequal(DEBUG_DIAG_LOAD_ON,3)
+                [U,S,V] = (pwelch(sinc(2*pi*f*lnm/bf.c),hamming(513), [], (0:N/2)*fs/N', fs));
+                Gamma_vv(:,n,m) = (V(:,1).');
+            elseif isequal(DEBUG_DIAG_LOAD_ON,4) % does not work for all cases (x,y)/(y,z)/(z,x)
+                [Pxyz,fc] = mscohere((pwelch(sinc(2*pi*f*lnm/bf.c),hamming(513), 500, (0:N/2)*fs/N', fs)),(pwelch((2*pi*f*lnm/bf.c),hamming(513), 500, (0:N/2)*fs/N', fs)),513, [],((0:N/2)*fs/N'),fs);
+                Gamma_vv(:,n,m) = Pxyz;
+            elseif isequal(DEBUG_DIAG_LOAD_ON,5) % does not work for all cases
+                [Pxyz,fc] = mscohere((pwelch(sinc(2*pi*f*lnm/bf.c),hamming(513), 500, (0:N/2)*fs/N', fs)),(pwelch((2*pi*f*lnm/bf.c),hamming(513), 500, (0:N/2)*fs/N', fs)),(513),[],(0:N/2)*fs/N',fs);
+                Gamma_vv(:,n,m) = svd(sinc(2*pi*f.*Pxyz/bf.c), 'econ');
+            elseif isequal(DEBUG_DIAG_LOAD_ON,6)  
+                [U,S,V] = pwelch(sinc(2*pi*f*lnm/bf.c),hamming(513), 500, 513, fs,'centered','power');
+                Gamma_vv(:,n,m) = pwelch(V(:, 1)  ,hamming(513), 500, 513, fs,'centered','power');
+            elseif isequal(DEBUG_DIAG_LOAD_ON,7)  % V is beamformer matrix
+                [U,S,V] = pwelch(sinc(2*pi*f*lnm/bf.c),hamming(513), 500, 513, fs,'centered','power');
+                Gamma_vv(:,n,m) = svd(pwelch(V(:, 1)  ,hamming(513), 500, 513, fs,'centered','power'), 'econ');
+                
+            end;
     end
 end
 
@@ -119,13 +144,28 @@ for iw = 1:N_half
 end
 
 %% Convert w to time domain
-W_full = zeros(N, bf.num_filters);
+% Commented out below line
+% Preallocation value assigned to variable is unused
+% W_full = zeros(N, bf.num_filters);
 W_full = W(1:N_half, :);
 for i=N_half+1:N
 	W_full(i,:) = conj(W(N_half-(i-N_half),:));
 end
 skip = floor((N - bf.fir_length)/2);
 win = kaiser(bf.fir_length,bf.fir_beta);
+if isequal(DEBUG_SELT_FILT_ON,1)
+  win = hann (bf.fir_length);
+elseif isequal(DEBUG_SELT_FILT_ON,2)
+  win = hamming(bf.fir_length);
+elseif isequal(DEBUG_SELT_FILT_ON,3)
+  sidelobe = -30;
+  nbar = 4;
+  win = taylorwin(bf.fir_length, nbar, sidelobe);
+elseif isequal(DEBUG_SELT_FILT_ON,4)
+  sidelobe = 30;
+  win = chebwin(bf.fir_length, sidelobe);
+end
+
 bf.w = zeros(bf.fir_length, bf.num_filters);
 for i=1:bf.num_filters
 	w_tmp = real(fftshift(ifft(W_full(:,i))));
