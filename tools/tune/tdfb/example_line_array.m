@@ -15,9 +15,11 @@ function example_line_array()
 %% 2 mic arrays
 for fs = [16e3 48e3]
 	for az = [0 10 25 90 -10 -25 -90]
+%     for az = [ 90 -10 -25 -90]
 		for d = [50e-3 67e-3];
-			close all;
+% 			close all;
 			line2_one_beam(fs, d, az);
+%             pause(5);
 		end
 	end
 end
@@ -27,6 +29,7 @@ for fs = [16e3 48e3]
 	for az = [0 10 25 90 -10 -25 -90]
 		for d = [28e-3 78e-3];
 			line4_one_beam(fs, d, az);
+%             pause(5);
 		end
 	end
 end

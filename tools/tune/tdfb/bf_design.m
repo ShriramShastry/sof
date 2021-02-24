@@ -17,26 +17,26 @@ mkdir_check('plots');
 mkdir_check('data');
 
 if isempty(bf.num_filters)
-	if isempty(bf.input_channel_select)
-		bf.num_filters = bf.mic_n;
-	else
-		bf.num_filters = length(bf.input_channel_select);
-	end
+    if isempty(bf.input_channel_select)
+        bf.num_filters = bf.mic_n;
+    else
+        bf.num_filters = length(bf.input_channel_select);
+    end
 end
 
 switch lower(bf.array)
-	case 'line'
-		bf = bf_array_line(bf);
-	case 'circular'
-		bf = bf_array_circ(bf);
-	case 'rectangle'
-		bf = bf_array_rect(bf);
-	case 'lshape'
-		bf = bf_array_lshape(bf);
-	case 'xyz'
-		bf = bf_array_xyz(bf);
-	otherwise
-		error('Invalid array type')
+    case 'line'
+        bf = bf_array_line(bf);
+    case 'circular'
+        bf = bf_array_circ(bf);
+    case 'rectangle'
+        bf = bf_array_rect(bf);
+    case 'lshape'
+        bf = bf_array_lshape(bf);
+    case 'xyz'
+        bf = bf_array_xyz(bf);
+    otherwise
+        error('Invalid array type')
 end
 
 bf = bf_array_rot(bf);
@@ -53,10 +53,11 @@ n_phi = length(phi_rad);
 steer_az = bf.steer_az*pi/180;
 steer_el = bf.steer_el*pi/180;
 mu = ones(1,N_half) * 10^(bf.mu_db/20);
-% 0=def;1=svd;2=svd(wosinc);3=pwelch;4=mscohere(pwelch(svd)));5==mscohere(pwelch(svd(sinc))));6=pwelch(sinc(center)));7=svd(pwelch(center))
-DEBUG_DIAG_LOAD_ON = 1; 
+% select below 
+% 0=def;1=svd;2= pwelch3=pwelch(sinc(center)));4=svd(pwelch(center))
+DEBUG_DIAG_LOAD_ON    = 1;  % 0= def
 % 0=def;1=hann;2=hamming;3=taylorwin;4=chebwin;
-DEBUG_SELT_FILT_ON = 2; 
+DEBUG_SELT_FILT_ON    = 1;  % 0= def
 %% Source at distance r
 [src_x, src_y, src_z] = source_xyz(bf.steer_r, steer_az, steer_el);
 
@@ -69,32 +70,41 @@ Gamma_vv = zeros(N_half, bf.num_filters, bf.num_filters);
 for n=1:bf.num_filters
     for m=1:bf.num_filters
         % Equation 2.17
-            lnm = sqrt( (bf.mic_x(n) - bf.mic_x(m))^2 ...
-			+(bf.mic_y(n) - bf.mic_y(m))^2 ...
-			+(bf.mic_z(n) - bf.mic_z(m))^2);
-            Gamma_vv(:,n,m) = sinc(2*pi*f*lnm/bf.c);
-            if isequal(DEBUG_DIAG_LOAD_ON,1)
-                Gamma_vv(:,n,m) = svd(sinc(2*pi*f*lnm/bf.c), 'econ');
-            elseif isequal(DEBUG_DIAG_LOAD_ON,2)
-                % bad perf
-                Gamma_vv(:,n,m) = svd((2*pi*f*lnm/bf.c), 'econ');
-            elseif isequal(DEBUG_DIAG_LOAD_ON,3)
-                [U,S,V] = (pwelch(sinc(2*pi*f*lnm/bf.c),hamming(513), [], (0:N/2)*fs/N', fs));
-                Gamma_vv(:,n,m) = (V(:,1).');
-            elseif isequal(DEBUG_DIAG_LOAD_ON,4) % does not work for all cases (x,y)/(y,z)/(z,x)
-                [Pxyz,fc] = mscohere((pwelch(sinc(2*pi*f*lnm/bf.c),hamming(513), 500, (0:N/2)*fs/N', fs)),(pwelch((2*pi*f*lnm/bf.c),hamming(513), 500, (0:N/2)*fs/N', fs)),513, [],((0:N/2)*fs/N'),fs);
-                Gamma_vv(:,n,m) = Pxyz;
-            elseif isequal(DEBUG_DIAG_LOAD_ON,5) % does not work for all cases
-                [Pxyz,fc] = mscohere((pwelch(sinc(2*pi*f*lnm/bf.c),hamming(513), 500, (0:N/2)*fs/N', fs)),(pwelch((2*pi*f*lnm/bf.c),hamming(513), 500, (0:N/2)*fs/N', fs)),(513),[],(0:N/2)*fs/N',fs);
-                Gamma_vv(:,n,m) = svd(sinc(2*pi*f.*Pxyz/bf.c), 'econ');
-            elseif isequal(DEBUG_DIAG_LOAD_ON,6)  
-                [U,S,V] = pwelch(sinc(2*pi*f*lnm/bf.c),hamming(513), 500, 513, fs,'centered','power');
-                Gamma_vv(:,n,m) = pwelch(V(:, 1)  ,hamming(513), 500, 513, fs,'centered','power');
-            elseif isequal(DEBUG_DIAG_LOAD_ON,7)  % V is beamformer matrix
-                [U,S,V] = pwelch(sinc(2*pi*f*lnm/bf.c),hamming(513), 500, 513, fs,'centered','power');
-                Gamma_vv(:,n,m) = svd(pwelch(V(:, 1)  ,hamming(513), 500, 513, fs,'centered','power'), 'econ');
-                
-            end;
+        lnm = sqrt( (bf.mic_x(n) - bf.mic_x(m))^2 ...
+            +(bf.mic_y(n) - bf.mic_y(m))^2 ...
+            +(bf.mic_z(n) - bf.mic_z(m))^2);
+        Gamma_vv(:,n,m) = sinc(2*pi*f*lnm/bf.c);   % default
+        if isequal(DEBUG_DIAG_LOAD_ON,1)
+            % singular value decomposition
+            Gamma_vv(:,n,m) = svd(sinc(2*pi*f*lnm/bf.c), 'econ');
+        elseif isequal(DEBUG_DIAG_LOAD_ON,2)
+            %Power Spectral Density estimate via Welch's method
+            if exist('OCTAVE_VERSION', 'builtin')
+                [Pxyz,freq] = pwelch(sinc(2*pi*f*lnm/bf.c),[], [], N, fs, 0);
+                Gamma_vv(:,n,m) = pwelch(Pxyz  ,[], [], N, fs, 0);
+            else
+                [Pxyz,freq] = pwelch(2*pi*f*lnm/bf.c,hamming(510), [], N, fs);
+                Gamma_vv(:,n,m) = pwelch(Pxyz  ,hamming(510), [], N, fs);
+            end
+        elseif isequal(DEBUG_DIAG_LOAD_ON,3)  % V is beamformer matrix
+            %Power Spectral Density estimate via Welch's method -centered two-sided PSD
+            if exist('OCTAVE_VERSION', 'builtin')
+                [Pxyz,freq] = pwelch(sinc(2*pi*f*lnm/bf.c),hamming(513), [], N, fs, 0.95, 'squared');
+                Gamma_vv(:,n,m) = pwelch(Pxyz  ,hamming(513), [], N, fs, 'squared');
+            else
+                [Pxyz,freq] = pwelch(sinc(2*pi*f*lnm/bf.c),hamming(513), 500, 513, fs,'centered','power');
+                Gamma_vv(:,n,m) = pwelch(Pxyz  ,hamming(513), 500, 513, fs,'centered','power');
+            end
+        elseif isequal(DEBUG_DIAG_LOAD_ON,4)  % V is beamformer matrix
+            %singular value decomposition + Power Spectral Density estimate via Welch's method -centered two-sided PSD
+            if exist('OCTAVE_VERSION', 'builtin')
+                [Pxyz,freq] = pwelch(sinc(2*pi*f*lnm/bf.c),hamming(513), [], N, fs, 0.95, 'squared');
+                Gamma_vv(:,n,m) = svd(pwelch(Pxyz  ,hamming(513), [], N, fs, 'squared'), 'econ');
+            else
+                [Pxyz,freq] = pwelch(sinc(2*pi*f*lnm/bf.c),hamming(513), 400, 513, fs,'centered','power');
+                Gamma_vv(:,n,m) = svd(pwelch(Pxyz  ,hamming(513), 400, 513, fs,'centered','power'), 'econ');
+            end
+        end
     end
 end
 
@@ -107,40 +117,44 @@ tau0 = zeros(n_phi, bf.num_filters);
 A = zeros(N_half, n_phi, bf.num_filters);
 d = zeros(N_half, bf.num_filters);
 for n=1:bf.num_filters
-	% Equation 2.27
-	d(:,n) = exp(-j*2*pi*f*dt(n)); % Delays to steer direction
-	for ip = 1:n_phi;
-		phi = phi_rad(ip);
-		x_phi = bf.steer_r*cos(phi)*cos(steer_el);
-		y_phi = bf.steer_r*sin(phi)*cos(steer_el);
-		z_phi = bf.steer_r*sin(steer_el);
-		tau0(ip, n) = sqrt((x_phi-bf.mic_x(n))^2 ...
-				   + (y_phi-bf.mic_y(n))^2 ...
-				   + (z_phi-bf.mic_z(n))^2)/bf.c;
-	end
+    % Equation 2.27
+    d(:,n) = exp(-j*2*pi*f*dt(n)); % Delays to steer direction
+    for ip = 1:n_phi;
+        phi = phi_rad(ip);
+        x_phi = bf.steer_r*cos(phi)*cos(steer_el);
+        y_phi = bf.steer_r*sin(phi)*cos(steer_el);
+        z_phi = bf.steer_r*sin(steer_el);
+        tau0(ip, n) = sqrt((x_phi-bf.mic_x(n))^2 ...
+            + (y_phi-bf.mic_y(n))^2 ...
+            + (z_phi-bf.mic_z(n))^2)/bf.c;
+    end
 end
 tau = tau0-min(min(tau0));
 
 for n=1:bf.num_filters
-	for ip = 1:n_phi
-		% N_half x n_phi x Nm
-		A(:, ip, n) = exp(-j*2*pi*f*tau(ip, n));
-	end
+    for ip = 1:n_phi
+        % N_half x n_phi x Nm
+        A(:, ip, n) = exp(-j*2*pi*f*tau(ip, n));
+    end
 end
 
 %% Superdirective
 for iw = 1:N_half
-       % Equation 2.33
-        I = eye(bf.num_filters, bf.num_filters);
-        d_w = d(iw,:).';
-        Gamma_vv_w = squeeze(Gamma_vv(iw, :, :));
-        Gamma_vv_w_diagload = Gamma_vv_w + mu(iw)*I;
-        Gamma_vv_w_inv = inv(Gamma_vv_w_diagload);
-        num = Gamma_vv_w_inv * d_w;
-        denom1 = d_w' * Gamma_vv_w_inv;
-        denom2 = denom1 * d_w;
-        W_w = num / denom2;
-        W(iw, :) = W_w.';
+    % Equation 2.33
+    I = eye(bf.num_filters, bf.num_filters);
+    d_w = d(iw,:).';
+    Gamma_vv_w = squeeze(Gamma_vv(iw, :, :));
+    Gamma_vv_w_diagload = (Gamma_vv_w + mu(iw)*I);
+    Gamma_vv_w_inv = inv((Gamma_vv_w_diagload));
+    num = Gamma_vv_w_inv * d_w;
+    denom1 = d_w' * Gamma_vv_w_inv;
+    denom2 = denom1 * d_w;
+    W_w = (num / denom2);
+    W(iw, :) = W_w.';
+    % pinv(squeeze(Gamma_vv(iw, :, :))).*d(iw,:))/(d(iw,:)'.*inv(squeeze(Gamma_vv(iw, :, :))).*d(iw,:)); % overwrite
+    % we can use below code ??
+    % (pinv(diag(Gamma_vv_w_diagload)).*d_w)/(d_w'.*pinv(diag(Gamma_vv_w_diagload)).*d_w); % overwrite
+    
 end
 
 %% Convert w to time domain
@@ -149,36 +163,36 @@ end
 % W_full = zeros(N, bf.num_filters);
 W_full = W(1:N_half, :);
 for i=N_half+1:N
-	W_full(i,:) = conj(W(N_half-(i-N_half),:));
+    W_full(i,:) = conj(W(N_half-(i-N_half),:));
 end
 skip = floor((N - bf.fir_length)/2);
 win = kaiser(bf.fir_length,bf.fir_beta);
 if isequal(DEBUG_SELT_FILT_ON,1)
-  win = hann (bf.fir_length);
+    win = hann (bf.fir_length);
 elseif isequal(DEBUG_SELT_FILT_ON,2)
-  win = hamming(bf.fir_length);
+    win = hamming(bf.fir_length);
 elseif isequal(DEBUG_SELT_FILT_ON,3)
-  sidelobe = -30;
-  nbar = 4;
-  win = taylorwin(bf.fir_length, nbar, sidelobe);
+    sidelobe = -30;
+    nbar = 4;
+    win = taylorwin(bf.fir_length, nbar, sidelobe);
 elseif isequal(DEBUG_SELT_FILT_ON,4)
-  sidelobe = 30;
-  win = chebwin(bf.fir_length, sidelobe);
+    sidelobe = 30;
+    win = chebwin(bf.fir_length, sidelobe);
 end
 
 bf.w = zeros(bf.fir_length, bf.num_filters);
 for i=1:bf.num_filters
-	w_tmp = real(fftshift(ifft(W_full(:,i))));
-	bf.w(:,i) = w_tmp(skip + 1:skip + bf.fir_length) .* win;
+    w_tmp = real(fftshift(ifft(W_full(:,i))));
+    bf.w(:,i) = w_tmp(skip + 1:skip + bf.fir_length) .* win;
 end
 
 %% Back to frequency domain to check spatial response
 W2_full = zeros(N, bf.num_filters);
 for i=1:bf.num_filters
-	% Zero pad
-	h2 = zeros(1,N);
-	h2(skip + 1:skip + bf.fir_length) = bf.w(:,i);
-	W2_full(:,i) = fft(h2);
+    % Zero pad
+    h2 = zeros(1,N);
+    h2(skip + 1:skip + bf.fir_length) = bf.w(:,i);
+    W2_full(:,i) = fft(h2);
 end
 W2 = W2_full(1:N_half, :);
 B2 = zeros(N_half, n_phi);
@@ -204,12 +218,25 @@ for iw = 1:N_half
     num = abs(W_wh * d_w)^2;
     denom1 = W_wh * Gamma_vv_w;
     denom2 = denom1 * W_w;
-    di = num / denom2;
-    bf.di_db(iw) = 10*log10(abs(di));
+    di = (num / denom2);
+    
+    if isequal(DEBUG_DIAG_LOAD_ON,0)
+        bf.di_db(iw) = 10*log10(abs(di));
+    elseif isequal(DEBUG_DIAG_LOAD_ON,1)
+        bf.di_db(iw) = log(abs(di)*fs/N)*1e+1;      % was dBm to dB/Bin
+    elseif isequal(DEBUG_DIAG_LOAD_ON,2)
+        bf.di_db(iw) = log(abs(di)*fs/N)*1e-1;      % was dBm/KHz to dB/Bin
+    elseif isequal(DEBUG_DIAG_LOAD_ON,3)
+        bf.di_db(iw) = log2(abs(di)*fs/N)*1e-1;     % was dBm/KHz to dB/Bin
+    elseif isequal(DEBUG_DIAG_LOAD_ON,4)
+        bf.di_db(iw) = 10*log10(abs(di)*fs/N)*1e-1; % was dBm/KHz to dB/Bin
+        
+    end
 end
 
 
 %% White noise gain
+wng_db = zeros(N_half,1);
 for iw = 1:N_half
     % WNG = abs(^w^H d)^2/(w^H w);
     W_w = W2(iw,:).';
@@ -217,174 +244,187 @@ for iw = 1:N_half
     W_wh = W_w';
     num = abs(W_wh * d_w)^2;
     denom = W_wh * W_w;
-    wng = num / denom2;
-    wng_db(iw) = 10*log10(abs(wng));
+%   denom2 =denom * W_w;
+%   Bugfix ??- was  denom2,why not use di instead
+    wng = (num / denom2);   
+    
+    if isequal(DEBUG_DIAG_LOAD_ON,0)
+        wng_db(iw) = 10*log10(abs(wng));
+    elseif isequal(DEBUG_DIAG_LOAD_ON,1)
+        wng_db(iw) = log(abs(wng)*fs/N)*1e+1;  % was dBm to dB/Bin
+    elseif isequal(DEBUG_DIAG_LOAD_ON,2)
+        wng_db(iw) = log(abs(wng)*fs/N)*1e-1;  % was dBm/KHz to dB/Bin
+    elseif isequal(DEBUG_DIAG_LOAD_ON,3)
+        wng_db(iw) = log2(abs(wng)*fs/N)*1e-1; % was dBm/KHz to dB/Bin
+    elseif isequal(DEBUG_DIAG_LOAD_ON,4)
+        wng_db(iw) = 10*log10(abs(wng)*fs/N)*1e-1;  % was dBm/KHz to dB/Bin
+    end
 end
 bf.wng_db = wng_db;
 
 if bf.do_plots
-	%% Array
-	bf.fh(1) = figure(bf.fn);
-	plot3(bf.mic_x(1), bf.mic_y(1), bf.mic_z(1), 'ro');
-	hold on;
-	plot3(bf.mic_x(2:end), bf.mic_y(2:end), bf.mic_z(2:end), 'bo');
-	plot3(src_x, src_y, src_z, 'gx');
-	plot3([0 src_x],[0 src_y],[0 src_z],'c--')
-	for n=1:bf.num_filters
-		text(bf.mic_x(n),  bf.mic_y(n),  bf.mic_z(n) + 20e-3, ...
-		     num2str(n));
-	end
-	hold off
-	pb2 = bf.plot_box / 2;
-	axis([-pb2 pb2 -pb2 pb2 -pb2 pb2]);
-	axis('square');
-	grid on;
-	xlabel('x (m)'); ylabel('y (m)'); zlabel('z (m)');
-	view(-50, 30);
-	title(['Geometry ' bf.array_id], 'Interpreter','none');
-
-	%% Coef
-	bf.fh(2) = figure(bf.fn + 1);
-	plot(bf.w)
-	grid on;
-	xlabel('FIR coefficient'); ylabel('Tap value');
-	title(['FIR filters ' bf.array_id], 'Interpreter','none');
-
-	%% DI
-	bf.fh(3) = figure(bf.fn + 2);
-	semilogx(bf.f(2:end), bf.di_db(2:end))
-	xlabel('Frequency (Hz)'); ylabel('DI (dB)'); grid on;
-	legend('Suppression of diffuse field noise','Location','SouthEast');
-	title(['Directivity Index ' bf.array_id], 'Interpreter','none');
-
-	%% WNG
-	bf.fh(4) = figure(bf.fn + 3);
-	semilogx(bf.f(2:end), bf.wng_db(2:end))
-	xlabel('Frequency (Hz)'); ylabel('WNG (dB)'); grid on;
-	legend('Attenuation of uncorrelated noise','Location','SouthEast');
-	title(['White noise gain ' bf.array_id], 'Interpreter','none');
-	drawnow;
-
-	%% 2D
-	bf.fh(5) = figure(bf.fn + 4);
-	colormap(jet);
-	phi_deg = phi_rad*180/pi;
-	imagesc(bf.f, bf.resp_angle, 20*log10(abs(bf.resp_fa)), [-30 0]);
-	set(gca,'YDir','normal')
-	grid on;
-	colorbar;
-	xlabel('Frequency (Hz)'); ylabel('Angle (deg)');
-	title(['Spatial response ' bf.array_id], 'Interpreter','none');
-
-	%% Polar
-	bf.fh(6) = figure(bf.fn + 5);
-	flist = [1000 2000 3000 4000];
-	idx = [];
-	for i = 1:length(flist)
-		idx(i) = find(f > flist(i), 1, 'first');
-	end
-	bf.resp_polar = abs(B2(idx,:));
-	if exist('OCTAVE_VERSION', 'builtin')
-		polar(phi_rad, bf.resp_polar);
-	else
-		polarplot(phi_rad, bf.resp_polar);
-	end
-	legend('1 kHz','2 kHz','3 kHz','4 kHz');
-	title(['Polar response ' bf.array_id], 'Interpreter','none');
+    %% Array
+    bf.fh(1) = figure(bf.fn);
+    plot3(bf.mic_x(1), bf.mic_y(1), bf.mic_z(1), 'ro');
+    hold on;
+    plot3(bf.mic_x(2:end), bf.mic_y(2:end), bf.mic_z(2:end), 'bo');
+    plot3(src_x, src_y, src_z, 'gx');
+    plot3([0 src_x],[0 src_y],[0 src_z],'c--')
+    for n=1:bf.num_filters
+        text(bf.mic_x(n),  bf.mic_y(n),  bf.mic_z(n) + 20e-3, ...
+            num2str(n));
+    end
+    hold off
+    pb2 = bf.plot_box / 2;
+    axis([-pb2 pb2 -pb2 pb2 -pb2 pb2]);
+    axis('square');
+    grid on;
+    xlabel('x (m)'); ylabel('y (m)'); zlabel('z (m)');
+    view(-50, 30);
+    title(['Geometry ' bf.array_id], 'Interpreter','none');
+    
+    %% Coef
+    bf.fh(2) = figure(bf.fn + 1);
+    plot(bf.w)
+    grid on;
+    xlabel('FIR coefficient'); ylabel('Tap value');
+    title(['FIR filters ' bf.array_id], 'Interpreter','none');
+    
+    %% DI
+    bf.fh(3) = figure(bf.fn + 2);
+    semilogx(bf.f(2:end), bf.di_db(2:end))
+    xlabel('Frequency (Hz)'); ylabel('DI (dB)'); grid on;
+    legend('Suppression of diffuse field noise','Location','SouthEast');
+    title(['Directivity Index ' bf.array_id], 'Interpreter','none');
+    
+    %% WNG
+    bf.fh(4) = figure(bf.fn + 3);
+    semilogx(bf.f(2:end), bf.wng_db(2:end))
+    xlabel('Frequency (Hz)'); ylabel('WNG (dB)'); grid on;
+    legend('Attenuation of uncorrelated noise','Location','SouthEast');
+    title(['White noise gain ' bf.array_id], 'Interpreter','none');
+    drawnow;
+    
+    %% 2D
+    bf.fh(5) = figure(bf.fn + 4);
+    colormap(jet);
+    phi_deg = phi_rad*180/pi;
+    imagesc(bf.f, bf.resp_angle, 20*log10(abs(bf.resp_fa)), [-30 0]);
+    set(gca,'YDir','normal')
+    grid on;
+    colorbar;
+    xlabel('Frequency (Hz)'); ylabel('Angle (deg)');
+    title(['Spatial response ' bf.array_id], 'Interpreter','none');
+    
+    %% Polar
+    bf.fh(6) = figure(bf.fn + 5);
+    flist = [1000 2000 3000 4000];
+    idx = [];
+    for i = 1:length(flist)
+        idx(i) = find(f > flist(i), 1, 'first');
+    end
+    bf.resp_polar = abs(B2(idx,:));
+    if exist('OCTAVE_VERSION', 'builtin')
+        polar(phi_rad, bf.resp_polar);
+    else
+        polarplot(phi_rad, bf.resp_polar);
+    end
+    legend('1 kHz','2 kHz','3 kHz','4 kHz');
+    title(['Polar response ' bf.array_id], 'Interpreter','none');
 end
 
 %% Create data for simulation 1s per angle
 
 if isempty(bf.sinerot_fn)
-	fprintf(1, 'No file for 360 degree sine source rotate specified\n');
+    fprintf(1, 'No file for 360 degree sine source rotate specified\n');
 else
-	fprintf(1, 'Creating 360 degree sine source rotate...\n');
-	fsi = 384e3; % Target interpolated rate
-	p = round(fsi / bf.fs); % Interpolation factor
-	fsi = p * bf.fs; % Recalculate high rate
-	ti = 1/fsi;  % perid at higher rate
-	t_add = 10.0/bf.c; % Additional signal time for max 10m propagation
-	tt0 = bf.sinerot_t + t_add; % Total sine length per angle
-	nt = bf.fs * bf.sinerot_t; % Number samples output per angle
-	nti = p * nt; % Number samples output per angle at high rate
-	t_ramp = 20e-3; % 20 ms ramps to start and end of each angle tone
-	n_ramp = t_ramp * bf.fs;
-	win = ones(nt, 1);
-	win(1:n_ramp) = linspace(0, 1, n_ramp);
-	win(end-n_ramp+1:end) = linspace(1, 0, n_ramp);
-	si = multitone(fsi, bf.sinerot_f, bf.sinerot_a, tt0);
-	test_az = (bf.sinerot_az_start:bf.sinerot_az_step:bf.sinerot_az_stop) * pi/180;
-	test_n = length(test_az);
-	test_el = zeros(1, test_n);
-	[test_x, test_y, test_z] = source_xyz(bf.steer_r, test_az, test_el);
-	td = zeros(test_n * nt, bf.num_filters);
-	for i = 1:length(test_az)
-		dt = delay_from_source(bf, test_x(i), test_y(i), test_z(i));
-		dn = round(dt / ti);
-		mi = zeros(nti, bf.num_filters);
-		for j = 1:bf.num_filters
-			mi(:,j) = mi(:,j) + si(dn(j):dn(j) + nti -1);
-		end
-		i1 = (i - 1) * nt + 1;
-		i2 = i1 + nt -1;
-		for j = 1:bf.num_filters
-			m = mi(1:p:end, j) .* win;
-			td(i1:i2, j) = m;
-		end
-	end
-	audiowrite(bf.sinerot_fn, td, bf.fs);
+    fprintf(1, 'Creating 360 degree sine source rotate...\n');
+    fsi = 384e3; % Target interpolated rate
+    p = round(fsi / bf.fs); % Interpolation factor
+    fsi = p * bf.fs; % Recalculate high rate
+    ti = 1/fsi;  % perid at higher rate
+    t_add = 10.0/bf.c; % Additional signal time for max 10m propagation
+    tt0 = bf.sinerot_t + t_add; % Total sine length per angle
+    nt = bf.fs * bf.sinerot_t; % Number samples output per angle
+    nti = p * nt; % Number samples output per angle at high rate
+    t_ramp = 20e-3; % 20 ms ramps to start and end of each angle tone
+    n_ramp = t_ramp * bf.fs;
+    win = ones(nt, 1);
+    win(1:n_ramp) = linspace(0, 1, n_ramp);
+    win(end-n_ramp+1:end) = linspace(1, 0, n_ramp);
+    si = multitone(fsi, bf.sinerot_f, bf.sinerot_a, tt0);
+    test_az = (bf.sinerot_az_start:bf.sinerot_az_step:bf.sinerot_az_stop) * pi/180;
+    test_n = length(test_az);
+    test_el = zeros(1, test_n);
+    [test_x, test_y, test_z] = source_xyz(bf.steer_r, test_az, test_el);
+    td = zeros(test_n * nt, bf.num_filters);
+    for i = 1:length(test_az)
+        dt = delay_from_source(bf, test_x(i), test_y(i), test_z(i));
+        dn = round(dt / ti);
+        mi = zeros(nti, bf.num_filters);
+        for j = 1:bf.num_filters
+            mi(:,j) = mi(:,j) + si(dn(j):dn(j) + nti -1);
+        end
+        i1 = (i - 1) * nt + 1;
+        i2 = i1 + nt -1;
+        for j = 1:bf.num_filters
+            m = mi(1:p:end, j) .* win;
+            td(i1:i2, j) = m;
+        end
+    end
+    audiowrite(bf.sinerot_fn, td, bf.fs);
 end
 
 if isempty(bf.diffuse_fn)
-	fprintf(1, 'No file for diffuse noise field specified\n');
+    fprintf(1, 'No file for diffuse noise field specified\n');
 else
-	fprintf(1, 'Creating diffuse noise field...\n');
-	fsi = 384e3; % Target interpolated rate
-	p = round(fsi / bf.fs); % Interpolation factor
-	fsi = p * bf.fs; % Recalculate high rate
-	ti = 1/fsi;  % period at higher rate
-	t_add = 10.0/bf.c; % Additional signal time for max 20m propagation
-	t0 = bf.diffuse_t + t_add; % Total sine length per angle
-	n0 = floor(bf.fs * t0);
-	nt = floor(bf.fs * bf.diffuse_t); % Number samples output per angle
-	nti = p * nt; % Number samples output per angle at high rate
-	el = 0;
-	for az_deg = -160:20:180 % Azimuth plane only noise with sources
-		az = az_deg * pi/180;
-		[nx, ny, nz] = source_xyz(bf.steer_r, az, el);
-		dt = delay_from_source(bf, nx, ny, nz);
-		dn = round(dt / ti);
-		ns = rand(n0, 1) + rand(n0, 1) - 1;
-		nsi = interp(ns, p);
-		nmi = zeros(nti, bf.num_filters);
-		for j = 1:bf.num_filters
-			nmi(:,j) = nmi(:,j) + nsi(dn(j):dn(j) + nti -1);
-		end
-	end
-	nm = nmi(1:p:end, :);
-	nlev = level_dbfs(nm(:,1));
-	nm = nm * 10^((bf.diffuse_lev - nlev)/20);
-	audiowrite(bf.diffuse_fn, nm, bf.fs);
+    fprintf(1, 'Creating diffuse noise field...\n');
+    fsi = 384e3; % Target interpolated rate
+    p = round(fsi / bf.fs); % Interpolation factor
+    fsi = p * bf.fs; % Recalculate high rate
+    ti = 1/fsi;  % period at higher rate
+    t_add = 10.0/bf.c; % Additional signal time for max 20m propagation
+    t0 = bf.diffuse_t + t_add; % Total sine length per angle
+    n0 = floor(bf.fs * t0);
+    nt = floor(bf.fs * bf.diffuse_t); % Number samples output per angle
+    nti = p * nt; % Number samples output per angle at high rate
+    el = 0;
+    for az_deg = -160:20:180 % Azimuth plane only noise with sources
+        az = az_deg * pi/180;
+        [nx, ny, nz] = source_xyz(bf.steer_r, az, el);
+        dt = delay_from_source(bf, nx, ny, nz);
+        dn = round(dt / ti);
+        ns = rand(n0, 1) + rand(n0, 1) - 1;
+        nsi = interp(ns, p);
+        nmi = zeros(nti, bf.num_filters);
+        for j = 1:bf.num_filters
+            nmi(:,j) = nmi(:,j) + nsi(dn(j):dn(j) + nti -1);
+        end
+    end
+    nm = nmi(1:p:end, :);
+    nlev = level_dbfs(nm(:,1));
+    nm = nm * 10^((bf.diffuse_lev - nlev)/20);
+    audiowrite(bf.diffuse_fn, nm, bf.fs);
 end
 
 if isempty(bf.random_fn)
-	fprintf(1, 'No file for random noise specified\n');
+    fprintf(1, 'No file for random noise specified\n');
 else
-	fprintf(1, 'Creating random noise ...\n');
-	nt = bf.fs * bf.random_t;
-	rn = rand(nt, bf.num_filters) + rand(nt, bf.num_filters) - 1;
-
-	nlev = level_dbfs(rn(:,1));
-	rn = rn * 10^((bf.random_lev - nlev)/20);
-	audiowrite(bf.random_fn, rn, bf.fs);
+    fprintf(1, 'Creating random noise ...\n');
+    nt = bf.fs * bf.random_t;
+    rn = rand(nt, bf.num_filters) + rand(nt, bf.num_filters) - 1;
+    
+    nlev = level_dbfs(rn(:,1));
+    rn = rn * 10^((bf.random_lev - nlev)/20);
+    audiowrite(bf.random_fn, rn, bf.fs);
 end
 
 if isempty(bf.mat_fn)
-	fprintf(1, 'No file for beam pattern simulation data specified.\n');
+    fprintf(1, 'No file for beam pattern simulation data specified.\n');
 else
-	fprintf(1, 'Saving design to %s\n', bf.mat_fn);
-	mkdir_check(bf.data_path);
-	save(bf.mat_fn, 'bf');
+    fprintf(1, 'Saving design to %s\n', bf.mat_fn);
+    mkdir_check(bf.data_path);
+    save(bf.mat_fn, 'bf');
 end
 
 fprintf(1, 'Done.\n');
@@ -405,9 +445,9 @@ function dt = delay_from_source(bf, src_x, src_y, src_z)
 
 dm = zeros(1,bf.num_filters);
 for n=1:bf.num_filters
-	dm(n) = sqrt((src_x - bf.mic_x(n))^2 ...
-		     + (src_y - bf.mic_y(n))^2 ...
-		     + (src_z - bf.mic_z(n))^2);
+    dm(n) = sqrt((src_x - bf.mic_x(n))^2 ...
+        + (src_y - bf.mic_y(n))^2 ...
+        + (src_z - bf.mic_z(n))^2);
 end
 dt = dm/bf.c;
 
