@@ -102,7 +102,11 @@ n_phi = length(phi_rad);
 steer_az = bf.steer_az*pi/180;
 steer_el = bf.steer_el*pi/180;
 mu = ones(1,N_half) * 10^(bf.mu_db/20);
-
+% select below 
+% 0=def;1=svd;2= pwelch3=pwelch(sinc(center)));4=svd(pwelch(center))
+DEBUG_DIAG_LOAD_ON    = 1;  % 0= def
+% 0=def;1=hann;2=hamming;3=taylorwin;4=chebwin;
+DEBUG_SELT_FILT_ON    = 1;  % 0= def
 %% Source at distance r
 [src_x, src_y, src_z] = source_xyz(bf.steer_r, steer_az, steer_el);
 
@@ -119,6 +123,37 @@ for n=1:bf.num_filters
 			+(bf.mic_y(n) - bf.mic_y(m))^2 ...
 			+(bf.mic_z(n) - bf.mic_z(m))^2);
             Gamma_vv(:,n,m) = sinc(2*pi*f*lnm/bf.c);
+        if isequal(DEBUG_DIAG_LOAD_ON,1)
+            % singular value decomposition
+            Gamma_vv(:,n,m) = svd(sinc(2*pi*f*lnm/bf.c), 'econ');
+        elseif isequal(DEBUG_DIAG_LOAD_ON,2)
+            %Power Spectral Density estimate via Welch's method
+            if exist('OCTAVE_VERSION', 'builtin')
+                [Pxyz,freq] = pwelch(sinc(2*pi*f*lnm/bf.c),[], [], N, fs, 0);
+                Gamma_vv(:,n,m) = pwelch(Pxyz  ,[], [], N, fs, 0);
+            else
+                [Pxyz,freq] = pwelch(2*pi*f*lnm/bf.c,hamming(510), [], N, fs);
+                Gamma_vv(:,n,m) = pwelch(Pxyz  ,hamming(510), [], N, fs);
+            end
+        elseif isequal(DEBUG_DIAG_LOAD_ON,3)  % V is beamformer matrix
+            %Power Spectral Density estimate via Welch's method -centered two-sided PSD
+            if exist('OCTAVE_VERSION', 'builtin')
+                [Pxyz,freq] = pwelch(sinc(2*pi*f*lnm/bf.c),hamming(513), [], N, fs, 0.95, 'squared');
+                Gamma_vv(:,n,m) = pwelch(Pxyz  ,hamming(513), [], N, fs, 'squared');
+            else
+                [Pxyz,freq] = pwelch(sinc(2*pi*f*lnm/bf.c),hamming(513), 500, 513, fs,'centered','power');
+                Gamma_vv(:,n,m) = pwelch(Pxyz  ,hamming(513), 500, 513, fs,'centered','power');
+            end
+        elseif isequal(DEBUG_DIAG_LOAD_ON,4)  % V is beamformer matrix
+            %singular value decomposition + Power Spectral Density estimate via Welch's method -centered two-sided PSD
+            if exist('OCTAVE_VERSION', 'builtin')
+                [Pxyz,freq] = pwelch(sinc(2*pi*f*lnm/bf.c),hamming(513), [], N, fs, 0.95, 'squared');
+                Gamma_vv(:,n,m) = svd(pwelch(Pxyz  ,hamming(513), [], N, fs, 'squared'), 'econ');
+            else
+                [Pxyz,freq] = pwelch(sinc(2*pi*f*lnm/bf.c),hamming(513), 400, 513, fs,'centered','power');
+                Gamma_vv(:,n,m) = svd(pwelch(Pxyz  ,hamming(513), 400, 513, fs,'centered','power'), 'econ');
+            end
+        end
     end
 end
 
@@ -189,6 +224,18 @@ for i=N_half+1:N
 end
 
 win = kaiser(bf.fir_length,bf.fir_beta);
+if isequal(DEBUG_SELT_FILT_ON,1)
+    win = hann (bf.fir_length);
+elseif isequal(DEBUG_SELT_FILT_ON,2)
+    win = hamming(bf.fir_length);
+elseif isequal(DEBUG_SELT_FILT_ON,3)
+    sidelobe = -30;
+    nbar = 4;
+    win = taylorwin(bf.fir_length, nbar, sidelobe);
+elseif isequal(DEBUG_SELT_FILT_ON,4)
+    sidelobe = 30;
+    win = chebwin(bf.fir_length, sidelobe);
+end
 bf.w = zeros(bf.fir_length, bf.num_filters);
 w_tmp = zeros(N, bf.num_filters);
 idx_max = zeros(bf.num_filters, 1);
@@ -245,7 +292,18 @@ for iw = 1:N_half
     denom1 = W_wh * Gamma_vv_w;
     denom2 = denom1 * W_w;
     di = num / denom2;
+    if isequal(DEBUG_DIAG_LOAD_ON,0)
     bf.di_db(iw) = 10*log10(abs(di));
+    elseif isequal(DEBUG_DIAG_LOAD_ON,1)
+        bf.di_db(iw) = log(abs(di)*fs/N)*1e+1;      % was dBm to dB/Bin
+    elseif isequal(DEBUG_DIAG_LOAD_ON,2)
+        bf.di_db(iw) = log(abs(di)*fs/N)*1e-1;      % was dBm/KHz to dB/Bin
+    elseif isequal(DEBUG_DIAG_LOAD_ON,3)
+        bf.di_db(iw) = log2(abs(di)*fs/N)*1e-1;     % was dBm/KHz to dB/Bin
+    elseif isequal(DEBUG_DIAG_LOAD_ON,4)
+        bf.di_db(iw) = 10*log10(abs(di)*fs/N)*1e-1; % was dBm/KHz to dB/Bin
+        
+    end
 end
 
 
@@ -258,7 +316,17 @@ for iw = 1:N_half
     num = abs(W_wh * d_w)^2;
     denom = W_wh * W_w;
     wng = num / denom2;
+    if isequal(DEBUG_DIAG_LOAD_ON,0)
     wng_db(iw) = 10*log10(abs(wng));
+    elseif isequal(DEBUG_DIAG_LOAD_ON,1)
+        wng_db(iw) = log(abs(wng)*fs/N)*1e+1;  % was dBm to dB/Bin
+    elseif isequal(DEBUG_DIAG_LOAD_ON,2)
+        wng_db(iw) = log(abs(wng)*fs/N)*1e-1;  % was dBm/KHz to dB/Bin
+    elseif isequal(DEBUG_DIAG_LOAD_ON,3)
+        wng_db(iw) = log2(abs(wng)*fs/N)*1e-1; % was dBm/KHz to dB/Bin
+    elseif isequal(DEBUG_DIAG_LOAD_ON,4)
+        wng_db(iw) = 10*log10(abs(wng)*fs/N)*1e-1;  % was dBm/KHz to dB/Bin
+    end
 end
 bf.wng_db = wng_db;
 
